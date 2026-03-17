@@ -1,0 +1,18 @@
+{
+  "name": "@moonlight-protocol/provider-console",
+  "version": "0.1.0",
+  "license": "MIT",
+  "tasks": {
+    "dev": "deno run --allow-all --allow-env --watch src/server.ts",
+    "build": "deno run --allow-all src/build.ts",
+    "serve": "deno run --allow-all src/server.ts"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.ns", "dom", "dom.iterable"]
+  },
+  "imports": {
+    "@std/path": "jsr:@std/path@^1.0.0",
+    "stellar-base": "npm:@stellar/stellar-base@14.1.0"
+  }
+}
