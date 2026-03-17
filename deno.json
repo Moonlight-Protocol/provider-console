@@ -13,6 +13,7 @@
   },
   "imports": {
     "@std/path": "jsr:@std/path@^1.0.0",
-    "stellar-base": "npm:@stellar/stellar-base@14.1.0"
+    "stellar-base": "npm:@stellar/stellar-base@14.1.0",
+    "@creit.tech/stellar-wallets-kit": "npm:@creit.tech/stellar-wallets-kit@^1.4.0"
   }
 }

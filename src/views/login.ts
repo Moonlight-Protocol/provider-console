@@ -1,7 +1,28 @@
-import { Keypair } from "stellar-base";
+import {
+  StellarWalletsKit,
+  WalletNetwork,
+  allowAllModules,
+  FREIGHTER_ID,
+  LOBSTR_ID,
+  XBULL_ID,
+} from "@creit.tech/stellar-wallets-kit";
 import { requestChallenge, verifyChallenge, setToken, isAuthenticated } from "../lib/api.ts";
 import { identify, capture } from "../lib/analytics.ts";
 import { navigate } from "../lib/router.ts";
+import { ENVIRONMENT } from "../lib/config.ts";
+
+let kit: StellarWalletsKit | null = null;
+
+function getKit(): StellarWalletsKit {
+  if (!kit) {
+    kit = new StellarWalletsKit({
+      network: ENVIRONMENT === "production" ? WalletNetwork.TESTNET : WalletNetwork.TESTNET,
+      selectedWalletId: FREIGHTER_ID,
+      modules: allowAllModules(),
+    });
+  }
+  return kit;
+}
 
 export function loginView(): HTMLElement {
   if (isAuthenticated()) {
@@ -14,63 +35,71 @@ export function loginView(): HTMLElement {
   container.innerHTML = `
     <div class="login-card">
       <h1>Provider Console</h1>
-      <p>Sign in with your Ed25519 key to manage your provider instance.</p>
-      <div class="form-group">
-        <label for="secret-key">Secret Key (S...)</label>
-        <input type="password" id="secret-key" placeholder="S..." autocomplete="off" />
-      </div>
-      <button id="login-btn" class="btn-primary">Sign In</button>
+      <p>Connect your Stellar wallet to manage your provider instance.</p>
+      <button id="connect-btn" class="btn-primary btn-wide">Connect Wallet</button>
+      <p id="login-status" class="hint-text" hidden></p>
       <p id="login-error" class="error-text" hidden></p>
-      <p class="hint-text">Your secret key is used locally to sign the challenge. It is never sent to the server.</p>
+      <p class="hint-text">Supports Freighter, LOBSTR, xBull, and other Stellar wallets via WalletConnect.</p>
     </div>
   `;
 
-  const btn = container.querySelector("#login-btn") as HTMLButtonElement;
-  const input = container.querySelector("#secret-key") as HTMLInputElement;
+  const btn = container.querySelector("#connect-btn") as HTMLButtonElement;
+  const statusEl = container.querySelector("#login-status") as HTMLParagraphElement;
   const errorEl = container.querySelector("#login-error") as HTMLParagraphElement;
 
   btn.addEventListener("click", async () => {
-    const secretKey = input.value.trim();
-    if (!secretKey) return;
-
     btn.disabled = true;
-    btn.textContent = "Signing...";
     errorEl.hidden = true;
 
     try {
-      const keypair = Keypair.fromSecret(secretKey);
-      const publicKey = keypair.publicKey();
+      const walletKit = getKit();
 
-      // 1. Request challenge
-      const { nonce } = await requestChallenge(publicKey);
+      // 1. Open wallet modal and get address
+      statusEl.textContent = "Connecting wallet...";
+      statusEl.hidden = false;
+      await walletKit.openModal({
+        onWalletSelected: async (option) => {
+          walletKit.setWallet(option.id);
 
-      // 2. Sign nonce
-      const nonceBuffer = Uint8Array.from(atob(nonce), (c) => c.charCodeAt(0));
-      const sigBuffer = keypair.sign(nonceBuffer);
-      const signature = btoa(String.fromCharCode(...sigBuffer));
+          try {
+            const { address: publicKey } = await walletKit.getAddress();
 
-      // 3. Verify and get token
-      const { token } = await verifyChallenge(nonce, signature, publicKey);
+            statusEl.textContent = `Connected: ${publicKey.slice(0, 8)}...${publicKey.slice(-4)}`;
 
-      setToken(token);
-      identify(publicKey);
-      capture("console_login", { publicKey });
-      navigate("/channels");
+            // 2. Request challenge nonce
+            statusEl.textContent = "Requesting challenge...";
+            const { nonce } = await requestChallenge(publicKey);
+
+            // 3. Sign nonce with wallet (SEP-53 signMessage)
+            statusEl.textContent = "Please approve the signature in your wallet...";
+            const { signedMessage } = await walletKit.signMessage(nonce, {
+              address: publicKey,
+            });
+
+            // 4. Verify with server
+            statusEl.textContent = "Verifying...";
+            const { token } = await verifyChallenge(nonce, signedMessage, publicKey);
+
+            setToken(token);
+            identify(publicKey);
+            capture("console_login", { publicKey, wallet: option.id });
+            navigate("/channels");
+          } catch (error) {
+            errorEl.textContent = error instanceof Error ? error.message : "Authentication failed";
+            errorEl.hidden = false;
+            statusEl.hidden = true;
+            capture("console_login_failed");
+          } finally {
+            btn.disabled = false;
+          }
+        },
+      });
     } catch (error) {
-      errorEl.textContent = error instanceof Error ? error.message : "Authentication failed";
+      errorEl.textContent = error instanceof Error ? error.message : "Failed to open wallet";
       errorEl.hidden = false;
-      capture("console_login_failed");
-    } finally {
-      // Clear sensitive data from input
-      input.value = "";
+      statusEl.hidden = true;
       btn.disabled = false;
-      btn.textContent = "Sign In";
     }
-  });
-
-  // Allow Enter key
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") btn.click();
   });
 
   return container;
