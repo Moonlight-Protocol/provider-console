@@ -1,0 +1,32 @@
+name: Deploy to Tigris
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Build production bundle
+        run: deno task build -- --production
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.TIGRIS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.TIGRIS_SECRET_ACCESS_KEY }}
+          aws-region: auto
+
+      - name: Deploy to Tigris
+        run: |
+          aws s3 sync public/ s3://provider-console/ \
+            --endpoint-url https://fly.storage.tigris.dev \
+            --acl public-read \
+            --delete \
+            --no-progress
