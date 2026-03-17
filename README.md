@@ -4,7 +4,7 @@ Dashboard for Privacy Provider operators to manage, monitor, and configure their
 
 ## Live
 
-https://provider-console.fly.storage.tigris.dev/
+https://provider-console.fly.storage.tigris.dev/index.html
 
 ## Development
 
@@ -25,7 +25,7 @@ deno task build -- --production   # minified, no sourcemaps
 Static files are deployed to a public [Tigris](https://www.tigrisdata.com/) bucket on Fly.io.
 
 - **Bucket**: `provider-console`
-- **URL**: https://provider-console.fly.storage.tigris.dev/
+- **URL**: https://provider-console.fly.storage.tigris.dev/index.html
 - **Auto-deploy**: push to `main` triggers the GitHub Actions workflow (`.github/workflows/deploy.yml`)
 - **Secrets** (set in GitHub repo settings): `TIGRIS_ACCESS_KEY_ID`, `TIGRIS_SECRET_ACCESS_KEY`
 
