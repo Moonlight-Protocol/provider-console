@@ -193,6 +193,7 @@ th {
 
 .btn-primary:hover { background: var(--primary-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-wide { width: 100%; padding: 0.75rem; font-size: 1rem; }
 
 .btn-link {
   background: none;
@@ -316,3 +317,13 @@ h3 { margin: 1.5rem 0 0.5rem; color: var(--text-muted); font-size: 0.875rem; tex
 }
 
 .hint-text a:hover { text-decoration: underline; }
+
+.version-badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--border);
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  vertical-align: middle;
+}
