@@ -26,13 +26,11 @@ jobs:
       - name: Build production bundle
         run: deno task build -- --production
 
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.TIGRIS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.TIGRIS_SECRET_ACCESS_KEY }}
-          aws-region: auto
-
       - name: Deploy to Tigris
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TIGRIS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TIGRIS_SECRET_ACCESS_KEY }}
+          AWS_REGION: auto
         run: |
           aws s3 sync public/ s3://provider-console/ \
             --endpoint-url https://fly.storage.tigris.dev \
