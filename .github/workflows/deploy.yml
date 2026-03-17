@@ -14,6 +14,15 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Generate production config
+        run: |
+          cat > public/config.js << EOF
+          window.__CONSOLE_CONFIG__ = {
+            apiBaseUrl: "${{ secrets.API_BASE_URL }}",
+            environment: "production",
+          };
+          EOF
+
       - name: Build production bundle
         run: deno task build -- --production
 
