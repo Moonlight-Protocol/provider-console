@@ -4,38 +4,17 @@ import { escapeHtml } from "../lib/dom.ts";
 
 function renderAnalyticsContent(): HTMLElement {
   const el = document.createElement("div");
-  const { baseUrl, panels } = GRAFANA_CONFIG;
+  const { baseUrl, publicDashboardUrl, panels } = GRAFANA_CONFIG;
+
+  const dashboardLink = publicDashboardUrl
+    ? `<p><a href="${escapeHtml(publicDashboardUrl)}" target="_blank" rel="noopener" class="dashboard-link">Open full dashboard in Grafana</a></p>`
+    : "";
 
   if (panels.length === 0) {
     el.innerHTML = `
       <h2>Analytics</h2>
-      <div class="empty-state">
-        <p>No Grafana panels configured.</p>
-        <p class="hint-text">
-          Add panel embed URLs to <code>window.__CONSOLE_CONFIG__.grafana.panels</code> in your deployment config.
-        </p>
-        <details>
-          <summary>Configuration example</summary>
-          <pre><code>window.__CONSOLE_CONFIG__ = {
-  ...
-  grafana: {
-    baseUrl: "${escapeHtml(baseUrl)}",
-    panels: [
-      {
-        title: "Request Latency",
-        src: "${escapeHtml(baseUrl)}/d-solo/abc123/provider-dashboard?panelId=1&amp;orgId=1",
-        height: 300
-      },
-      {
-        title: "Bundle Throughput",
-        src: "${escapeHtml(baseUrl)}/d-solo/abc123/provider-dashboard?panelId=2&amp;orgId=1",
-        height: 300
-      }
-    ]
-  }
-};</code></pre>
-        </details>
-      </div>
+      <p class="hint-text">Powered by <a href="${escapeHtml(baseUrl)}" target="_blank" rel="noopener">Grafana</a> — data from OpenTelemetry instrumentation.</p>
+      ${dashboardLink}
     `;
     return el;
   }
@@ -65,6 +44,7 @@ function renderAnalyticsContent(): HTMLElement {
   el.innerHTML = `
     <h2>Analytics</h2>
     <p class="hint-text">Powered by <a href="${escapeHtml(baseUrl)}" target="_blank" rel="noopener">Grafana</a> — data from OpenTelemetry instrumentation.</p>
+    ${dashboardLink}
     <div class="grafana-grid">
       ${panelHtml}
     </div>

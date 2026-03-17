@@ -11,6 +11,7 @@ declare global {
       environment?: string;
       grafana?: {
         baseUrl?: string;
+        publicDashboardUrl?: string;
         panels?: Array<{
           title: string;
           src: string;
@@ -28,4 +29,4 @@ export const POSTHOG_KEY = config.posthogKey ?? "";
 export const POSTHOG_HOST = config.posthogHost ?? "https://us.i.posthog.com";
 export const ENVIRONMENT = config.environment ?? "development";
 export const IS_PRODUCTION = ENVIRONMENT === "production";
-export const GRAFANA_CONFIG = config.grafana ?? { baseUrl: "https://aha.grafana.net", panels: [] };
+export const GRAFANA_CONFIG = config.grafana ?? { baseUrl: "https://aha.grafana.net", publicDashboardUrl: "", panels: [] };
