@@ -1,12 +1,8 @@
-import {
-  StellarWalletsKit,
-  WalletNetwork,
-  allowAllModules,
-  FREIGHTER_ID,
-  LOBSTR_ID,
-  XBULL_ID,
-} from "@creit.tech/stellar-wallets-kit";
-import { requestChallenge, verifyChallenge, setToken, isAuthenticated } from "../lib/api.ts";
+import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/stellar-wallets-kit.mjs";
+import { WalletNetwork } from "@creit.tech/stellar-wallets-kit/types.mjs";
+import { FreighterModule, FREIGHTER_ID } from "@creit.tech/stellar-wallets-kit/modules/freighter.module.mjs";
+import "@creit.tech/stellar-wallets-kit/components/modal/stellar-wallets-modal.mjs";
+import { requestStellarChallenge, verifyStellarChallenge, setToken, isAuthenticated } from "../lib/api.ts";
 import { identify, capture } from "../lib/analytics.ts";
 import { navigate } from "../lib/router.ts";
 import { ENVIRONMENT } from "../lib/config.ts";
@@ -16,9 +12,9 @@ let kit: StellarWalletsKit | null = null;
 function getKit(): StellarWalletsKit {
   if (!kit) {
     kit = new StellarWalletsKit({
-      network: ENVIRONMENT === "production" ? WalletNetwork.TESTNET : WalletNetwork.TESTNET,
+      network: ENVIRONMENT === "production" ? WalletNetwork.TESTNET : WalletNetwork.STANDALONE,
       selectedWalletId: FREIGHTER_ID,
-      modules: allowAllModules(),
+      modules: [new FreighterModule()],
     });
   }
   return kit;
@@ -54,7 +50,6 @@ export function loginView(): HTMLElement {
     try {
       const walletKit = getKit();
 
-      // 1. Open wallet modal and get address
       statusEl.textContent = "Connecting wallet...";
       statusEl.hidden = false;
       await walletKit.openModal({
@@ -63,29 +58,27 @@ export function loginView(): HTMLElement {
 
           try {
             const { address: publicKey } = await walletKit.getAddress();
-
             statusEl.textContent = `Connected: ${publicKey.slice(0, 8)}...${publicKey.slice(-4)}`;
 
-            // 2. Request challenge nonce
+            // 1. Request SEP-10 challenge transaction
             statusEl.textContent = "Requesting challenge...";
-            const { nonce } = await requestChallenge(publicKey);
+            const { challenge } = await requestStellarChallenge(publicKey);
 
-            // 3. Sign nonce with wallet (SEP-53 signMessage)
-            statusEl.textContent = "Please approve the signature in your wallet...";
-            const { signedMessage } = await walletKit.signMessage(nonce, {
-              address: publicKey,
-            });
+            // 2. Sign the challenge transaction with wallet
+            statusEl.textContent = "Please approve the transaction in your wallet...";
+            const { signedTxXdr } = await walletKit.signTransaction(challenge);
 
-            // 4. Verify with server
+            // 3. Submit signed challenge and get JWT
             statusEl.textContent = "Verifying...";
-            const { token } = await verifyChallenge(nonce, signedMessage, publicKey);
+            const { jwt } = await verifyStellarChallenge(signedTxXdr);
 
-            setToken(token);
+            setToken(jwt);
             identify(publicKey);
             capture("console_login", { publicKey, wallet: option.id });
             navigate("/channels");
           } catch (error) {
-            errorEl.textContent = error instanceof Error ? error.message : "Authentication failed";
+            console.error("[login] auth error:", error);
+            errorEl.textContent = error instanceof Error ? error.message : String(error) || "Authentication failed";
             errorEl.hidden = false;
             statusEl.hidden = true;
             capture("console_login_failed");
