@@ -1,4 +1,4 @@
-import { getMempool } from "../lib/api.ts";
+import { getMempool, type MempoolLive, type MempoolAverages } from "../lib/api.ts";
 import { page } from "../components/page.ts";
 import { renderError, escapeHtml } from "../lib/dom.ts";
 
@@ -8,25 +8,12 @@ function renderMempoolContent(): HTMLElement {
 
   getMempool()
     .then(({ data }) => {
-      const d = data as {
-        platformVersion?: string;
-        live?: { totalSlots: number; totalBundles: number; totalWeight: number; averageBundlesPerSlot: number };
-        averages?: {
-          windowMinutes: number; sampleCount: number;
-          avgQueueDepth: number; avgSlotCount: number;
-          avgProcessingMs: number; avgThroughputPerMin: number;
-        };
-        config: {
-          slotCapacity: number; expensiveOpWeight: number; cheapOpWeight: number;
-          executorIntervalMs: number; verifierIntervalMs: number; ttlCheckIntervalMs: number;
-        };
-      };
-
-      const live = d.live ?? { totalSlots: 0, totalBundles: 0, totalWeight: 0, averageBundlesPerSlot: 0 };
-      const averages = d.averages ?? { windowMinutes: 60, sampleCount: 0, avgQueueDepth: 0, avgSlotCount: 0, avgProcessingMs: 0, avgThroughputPerMin: 0 };
+      const { config } = data;
+      const live: MempoolLive = data.live ?? { totalSlots: 0, totalBundles: 0, totalWeight: 0, averageBundlesPerSlot: 0 };
+      const averages: MempoolAverages = data.averages ?? { windowMinutes: 60, sampleCount: 0, avgQueueDepth: 0, avgSlotCount: 0, avgProcessingMs: 0, avgThroughputPerMin: 0 };
 
       el.innerHTML = `
-        <h2>Mempool ${d.platformVersion ? `<span class="version-badge">v${escapeHtml(d.platformVersion)}</span>` : ""}</h2>
+        <h2>Mempool ${data.platformVersion ? `<span class="version-badge">v${escapeHtml(data.platformVersion)}</span>` : ""}</h2>
 
         <h3>Live</h3>
         <div class="stats-row">

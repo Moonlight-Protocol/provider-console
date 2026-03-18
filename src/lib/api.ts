@@ -93,12 +93,44 @@ export async function verifyStellarChallenge(signedChallenge: string): Promise<{
 
 // --- Dashboard data ---
 
+export interface MempoolLive {
+  totalSlots: number;
+  totalBundles: number;
+  totalWeight: number;
+  averageBundlesPerSlot: number;
+}
+
+export interface MempoolAverages {
+  windowMinutes: number;
+  sampleCount: number;
+  avgQueueDepth: number;
+  avgSlotCount: number;
+  avgProcessingMs: number;
+  avgThroughputPerMin: number;
+}
+
+export interface MempoolConfig {
+  slotCapacity: number;
+  expensiveOpWeight: number;
+  cheapOpWeight: number;
+  executorIntervalMs: number;
+  verifierIntervalMs: number;
+  ttlCheckIntervalMs: number;
+}
+
+export interface MempoolResponse {
+  platformVersion?: string;
+  live: MempoolLive;
+  averages: MempoolAverages;
+  config: MempoolConfig;
+}
+
 export async function getChannels() {
   return request<{ data: { channels: unknown[]; summary: unknown } }>("/dashboard/channels");
 }
 
 export async function getMempool() {
-  return request<{ data: { platformVersion: string; live: unknown; averages: unknown; config: unknown } }>("/dashboard/mempool");
+  return request<{ data: MempoolResponse }>("/dashboard/mempool");
 }
 
 export async function getOperations() {
