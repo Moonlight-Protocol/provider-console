@@ -6,8 +6,8 @@ on:
 
 jobs:
   version:
-    # Skip if this push was made by the auto-version workflow itself
-    if: github.actor != 'github-actions[bot]'
+    # Skip version bump commits to avoid infinite loop
+    if: "!startsWith(github.event.head_commit.message, 'chore: bump version')"
     runs-on: ubuntu-latest
     permissions:
       contents: write
