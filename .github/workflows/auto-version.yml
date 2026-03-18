@@ -1,75 +1,41 @@
-name: Auto Version
+name: Auto Tag
 
 on:
   push:
     branches: [main]
+    paths:
+      - "deno.json"
 
 jobs:
-  version:
-    # Skip version bump commits to avoid infinite loop
-    if: "!startsWith(github.event.head_commit.message, 'chore: bump version')"
+  tag:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
           token: ${{ secrets.AUTO_VERSION_TOKEN }}
           persist-credentials: true
 
-      - name: Determine version bump from commit message
-        id: bump
-        run: |
-          MSG=$(git log -1 --pretty=%B)
-          echo "Commit message: $MSG"
-
-          # Check for breaking change
-          if echo "$MSG" | grep -qE '^[a-z]+!:|BREAKING CHANGE'; then
-            echo "type=major" >> "$GITHUB_OUTPUT"
-          # feat → minor
-          elif echo "$MSG" | grep -qE '^feat(\(.+\))?:'; then
-            echo "type=minor" >> "$GITHUB_OUTPUT"
-          # Everything else → patch
-          else
-            echo "type=patch" >> "$GITHUB_OUTPUT"
-          fi
-
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-
-      - name: Bump version in deno.json
+      - name: Read version from deno.json
         id: version
         run: |
-          BUMP="${{ steps.bump.outputs.type }}"
-          CURRENT=$(deno eval "const d = JSON.parse(Deno.readTextFileSync('deno.json')); console.log(d.version)")
+          VERSION=$(grep -m1 '"version"' deno.json | sed 's/.*"\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-
-          case "$BUMP" in
-            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-            patch) PATCH=$((PATCH + 1)) ;;
-          esac
-
-          NEW="${MAJOR}.${MINOR}.${PATCH}"
-          echo "Bumping $CURRENT → $NEW ($BUMP)"
-
-          deno eval "
-            const d = JSON.parse(Deno.readTextFileSync('deno.json'));
-            d.version = '${NEW}';
-            Deno.writeTextFileSync('deno.json', JSON.stringify(d, null, 2) + '\n');
-          "
-
-          echo "version=$NEW" >> "$GITHUB_OUTPUT"
-
-      - name: Commit and tag
+      - name: Check if tag exists
+        id: check
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add deno.json
-          git commit -m "chore: bump version to ${VERSION}"
-          git tag "v${VERSION}"
-          git push --follow-tags
+          if git rev-parse "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create tag
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git tag ${{ steps.version.outputs.tag }}
+          git push origin ${{ steps.version.outputs.tag }}
