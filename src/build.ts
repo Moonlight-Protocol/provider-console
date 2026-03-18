@@ -45,9 +45,9 @@ if (appJs === before) {
   );
 }
 
-// Remove bare ESM buffer imports
+// Remove bare ESM buffer imports (handles both minified and non-minified output)
 appJs = appJs.replace(
-  /import \{ Buffer as Buffer\d* \} from "buffer";/g,
+  /import\s*\{[^}]*\}\s*from\s*"buffer"\s*;?/g,
   "",
 );
 await Deno.writeTextFile("public/app.js", appJs);
