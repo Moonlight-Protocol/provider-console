@@ -32,7 +32,7 @@ const before = appJs;
 
 // Patch __require: intercept require("buffer") before it throws
 appJs = appJs.replace(
-  /throw (Error\('Dynamic require of "' \+ (\w+) \+ '" is not supported'\))/,
+  /throw\s*(Error\('Dynamic require of "'\s*\+\s*(\w+)\s*\+\s*'" is not supported'\))/,
   (_match, errExpr, varName) =>
     `if(${varName}==="buffer")return globalThis.__buffer_polyfill;throw ${errExpr}`,
 );

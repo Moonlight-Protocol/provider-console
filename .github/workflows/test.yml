@@ -5,6 +5,21 @@ on:
     branches: [main]
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Build (dev)
+        run: deno task build
+
+      - name: Build (production)
+        run: deno task build -- --production
+
   test:
     runs-on: ubuntu-latest
     steps:
