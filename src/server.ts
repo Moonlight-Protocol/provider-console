@@ -20,7 +20,8 @@ function getCSP(): string {
   return [
     "default-src 'self'",
     "script-src 'self' https://us-assets.i.posthog.com",
-    "style-src 'self' 'unsafe-hashes' 'unsafe-inline'",
+    // unsafe-inline required for Stellar Wallets Kit Lit modal (inline styles)
+    "style-src 'self' 'unsafe-inline'",
     "img-src 'self' https://stellar.creit.tech",
     "frame-src https://*.grafana.net",
     `connect-src 'self' ${connectSrc}`,

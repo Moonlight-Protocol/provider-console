@@ -8,10 +8,10 @@ function renderMempoolContent(): HTMLElement {
 
   getMempool()
     .then(({ data }) => {
-      const { platformVersion, live, averages, config } = data as {
-        platformVersion: string;
-        live: { totalSlots: number; totalBundles: number; totalWeight: number; averageBundlesPerSlot: number };
-        averages: {
+      const d = data as {
+        platformVersion?: string;
+        live?: { totalSlots: number; totalBundles: number; totalWeight: number; averageBundlesPerSlot: number };
+        averages?: {
           windowMinutes: number; sampleCount: number;
           avgQueueDepth: number; avgSlotCount: number;
           avgProcessingMs: number; avgThroughputPerMin: number;
@@ -22,8 +22,11 @@ function renderMempoolContent(): HTMLElement {
         };
       };
 
+      const live = d.live ?? { totalSlots: 0, totalBundles: 0, totalWeight: 0, averageBundlesPerSlot: 0 };
+      const averages = d.averages ?? { windowMinutes: 60, sampleCount: 0, avgQueueDepth: 0, avgSlotCount: 0, avgProcessingMs: 0, avgThroughputPerMin: 0 };
+
       el.innerHTML = `
-        <h2>Mempool <span class="version-badge">v${escapeHtml(platformVersion)}</span></h2>
+        <h2>Mempool ${d.platformVersion ? `<span class="version-badge">v${escapeHtml(d.platformVersion)}</span>` : ""}</h2>
 
         <h3>Live</h3>
         <div class="stats-row">

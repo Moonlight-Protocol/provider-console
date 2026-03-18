@@ -35,7 +35,7 @@ export function loginView(): HTMLElement {
       <button id="connect-btn" class="btn-primary btn-wide">Connect Wallet</button>
       <p id="login-status" class="hint-text" hidden></p>
       <p id="login-error" class="error-text" hidden></p>
-      <p class="hint-text">Supports Freighter, LOBSTR, xBull, and other Stellar wallets via WalletConnect.</p>
+      <p class="hint-text">Sign in with Freighter to manage your provider instance.</p>
     </div>
   `;
 
@@ -77,8 +77,7 @@ export function loginView(): HTMLElement {
             capture("console_login", { publicKey, wallet: option.id });
             navigate("/channels");
           } catch (error) {
-            console.error("[login] auth error:", error);
-            errorEl.textContent = error instanceof Error ? error.message : String(error) || "Authentication failed";
+            errorEl.textContent = error instanceof Error ? error.message : "Authentication failed";
             errorEl.hidden = false;
             statusEl.hidden = true;
             capture("console_login_failed");

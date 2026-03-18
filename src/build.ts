@@ -28,12 +28,23 @@ await esbuild.build({
 // Fix both by: 1) patching __require to return our polyfill for "buffer",
 // 2) removing the bare ESM import.
 let appJs = await Deno.readTextFile("public/app.js");
+const before = appJs;
+
 // Patch __require: intercept require("buffer") before it throws
 appJs = appJs.replace(
   /throw (Error\('Dynamic require of "' \+ (\w+) \+ '" is not supported'\))/,
   (_match, errExpr, varName) =>
     `if(${varName}==="buffer")return globalThis.__buffer_polyfill;throw ${errExpr}`,
 );
+
+if (appJs === before) {
+  esbuild.stop();
+  throw new Error(
+    "Build failed: could not patch __require for buffer polyfill. " +
+    "esbuild's CJS shim format may have changed.",
+  );
+}
+
 // Remove bare ESM buffer imports
 appJs = appJs.replace(
   /import \{ Buffer as Buffer\d* \} from "buffer";/g,

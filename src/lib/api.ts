@@ -77,7 +77,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 // --- Auth (SEP-10 transaction-based challenge) ---
 
 export async function requestStellarChallenge(publicKey: string): Promise<{ challenge: string }> {
-  const res = await request<{ data: { challenge: string } }>(`/stellar/auth?account=${publicKey}`, {
+  const res = await request<{ data: { challenge: string } }>(`/stellar/auth?account=${encodeURIComponent(publicKey)}`, {
     method: "GET",
   });
   return res.data;
@@ -98,7 +98,7 @@ export async function getChannels() {
 }
 
 export async function getMempool() {
-  return request<{ data: { stats: unknown; config: unknown } }>("/dashboard/mempool");
+  return request<{ data: { platformVersion: string; live: unknown; averages: unknown; config: unknown } }>("/dashboard/mempool");
 }
 
 export async function getOperations() {

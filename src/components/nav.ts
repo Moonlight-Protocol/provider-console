@@ -1,9 +1,10 @@
 import { clearToken } from "../lib/api.ts";
 import { resetAnalytics } from "../lib/analytics.ts";
 import { navigate } from "../lib/router.ts";
+import { escapeHtml } from "../lib/dom.ts";
 
 declare const __APP_VERSION__: string;
-const appVersion: string = __APP_VERSION__;
+const appVersion: string = escapeHtml(__APP_VERSION__);
 
 export function renderNav(): HTMLElement {
   const nav = document.createElement("nav");
