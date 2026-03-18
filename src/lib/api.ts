@@ -74,24 +74,19 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
-// --- Auth ---
+// --- Auth (SEP-10 transaction-based challenge) ---
 
-export async function requestChallenge(publicKey: string): Promise<{ nonce: string }> {
-  const res = await request<{ data: { nonce: string } }>("/dashboard/auth/challenge", {
-    method: "POST",
-    body: JSON.stringify({ publicKey }),
+export async function requestStellarChallenge(publicKey: string): Promise<{ challenge: string }> {
+  const res = await request<{ data: { challenge: string } }>(`/stellar/auth?account=${publicKey}`, {
+    method: "GET",
   });
   return res.data;
 }
 
-export async function verifyChallenge(
-  nonce: string,
-  signature: string,
-  publicKey: string,
-): Promise<{ token: string }> {
-  const res = await request<{ data: { token: string } }>("/dashboard/auth/verify", {
+export async function verifyStellarChallenge(signedChallenge: string): Promise<{ jwt: string }> {
+  const res = await request<{ data: { jwt: string } }>("/stellar/auth", {
     method: "POST",
-    body: JSON.stringify({ nonce, signature, publicKey }),
+    body: JSON.stringify({ signedChallenge }),
   });
   return res.data;
 }
