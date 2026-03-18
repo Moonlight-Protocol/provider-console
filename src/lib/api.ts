@@ -74,36 +74,63 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
-// --- Auth ---
+// --- Auth (SEP-10 transaction-based challenge) ---
 
-export async function requestChallenge(publicKey: string): Promise<{ nonce: string }> {
-  const res = await request<{ data: { nonce: string } }>("/dashboard/auth/challenge", {
-    method: "POST",
-    body: JSON.stringify({ publicKey }),
+export async function requestStellarChallenge(publicKey: string): Promise<{ challenge: string }> {
+  const res = await request<{ data: { challenge: string } }>(`/stellar/auth?account=${encodeURIComponent(publicKey)}`, {
+    method: "GET",
   });
   return res.data;
 }
 
-export async function verifyChallenge(
-  nonce: string,
-  signature: string,
-  publicKey: string,
-): Promise<{ token: string }> {
-  const res = await request<{ data: { token: string } }>("/dashboard/auth/verify", {
+export async function verifyStellarChallenge(signedChallenge: string): Promise<{ jwt: string }> {
+  const res = await request<{ data: { jwt: string } }>("/stellar/auth", {
     method: "POST",
-    body: JSON.stringify({ nonce, signature, publicKey }),
+    body: JSON.stringify({ signedChallenge }),
   });
   return res.data;
 }
 
 // --- Dashboard data ---
 
+export interface MempoolLive {
+  totalSlots: number;
+  totalBundles: number;
+  totalWeight: number;
+  averageBundlesPerSlot: number;
+}
+
+export interface MempoolAverages {
+  windowMinutes: number;
+  sampleCount: number;
+  avgQueueDepth: number;
+  avgSlotCount: number;
+  avgProcessingMs: number;
+  avgThroughputPerMin: number;
+}
+
+export interface MempoolConfig {
+  slotCapacity: number;
+  expensiveOpWeight: number;
+  cheapOpWeight: number;
+  executorIntervalMs: number;
+  verifierIntervalMs: number;
+  ttlCheckIntervalMs: number;
+}
+
+export interface MempoolResponse {
+  platformVersion?: string;
+  live?: MempoolLive;
+  averages?: MempoolAverages;
+  config: MempoolConfig;
+}
+
 export async function getChannels() {
   return request<{ data: { channels: unknown[]; summary: unknown } }>("/dashboard/channels");
 }
 
 export async function getMempool() {
-  return request<{ data: { stats: unknown; config: unknown } }>("/dashboard/mempool");
+  return request<{ data: MempoolResponse }>("/dashboard/mempool");
 }
 
 export async function getOperations() {

@@ -5,7 +5,8 @@
   "tasks": {
     "dev": "deno run --allow-all --allow-env --watch src/server.ts",
     "build": "deno run --allow-all src/build.ts",
-    "serve": "deno run --allow-all src/server.ts"
+    "serve": "deno run --allow-all src/server.ts",
+    "test": "deno test --allow-all src/"
   },
   "compilerOptions": {
     "strict": true,
@@ -14,6 +15,7 @@
   "imports": {
     "@std/path": "jsr:@std/path@^1.0.0",
     "stellar-base": "npm:@stellar/stellar-base@14.1.0",
-    "@creit.tech/stellar-wallets-kit": "npm:@creit.tech/stellar-wallets-kit@^1.4.0"
+    "@creit.tech/stellar-wallets-kit": "npm:@creit.tech/stellar-wallets-kit@^1.4.0",
+    "buffer": "npm:buffer@^6.0.3"
   }
 }

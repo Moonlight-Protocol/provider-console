@@ -1,0 +1,73 @@
+name: Auto Version
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  version:
+    # Skip if this push was made by the auto-version workflow itself
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Determine version bump from commit message
+        id: bump
+        run: |
+          MSG=$(git log -1 --pretty=%B)
+          echo "Commit message: $MSG"
+
+          # Check for breaking change
+          if echo "$MSG" | grep -qE '^[a-z]+!:|BREAKING CHANGE'; then
+            echo "type=major" >> "$GITHUB_OUTPUT"
+          # feat → minor
+          elif echo "$MSG" | grep -qE '^feat(\(.+\))?:'; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"
+          # Everything else → patch
+          else
+            echo "type=patch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Bump version in deno.json
+        id: version
+        run: |
+          BUMP="${{ steps.bump.outputs.type }}"
+          CURRENT=$(deno eval "const d = JSON.parse(Deno.readTextFileSync('deno.json')); console.log(d.version)")
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW="${MAJOR}.${MINOR}.${PATCH}"
+          echo "Bumping $CURRENT → $NEW ($BUMP)"
+
+          deno eval "
+            const d = JSON.parse(Deno.readTextFileSync('deno.json'));
+            d.version = '${NEW}';
+            Deno.writeTextFileSync('deno.json', JSON.stringify(d, null, 2) + '\n');
+          "
+
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deno.json
+          git commit -m "chore: bump version to ${VERSION}"
+          git tag "v${VERSION}"
+          git push --follow-tags
