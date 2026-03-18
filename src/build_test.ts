@@ -1,4 +1,4 @@
-import { assertEquals, assertThrows } from "jsr:@std/assert";
+import { assertEquals } from "jsr:@std/assert";
 
 // Test the regex pattern used in build.ts to patch __require
 const PATCH_REGEX = /throw (Error\('Dynamic require of "' \+ (\w+) \+ '" is not supported'\))/;

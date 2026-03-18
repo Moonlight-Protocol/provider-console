@@ -120,8 +120,8 @@ export interface MempoolConfig {
 
 export interface MempoolResponse {
   platformVersion?: string;
-  live: MempoolLive;
-  averages: MempoolAverages;
+  live?: MempoolLive;
+  averages?: MempoolAverages;
   config: MempoolConfig;
 }
 

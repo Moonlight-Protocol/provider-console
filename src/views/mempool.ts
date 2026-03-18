@@ -23,7 +23,7 @@ function renderMempoolContent(): HTMLElement {
           <div class="stat-card"><span class="stat-value">${escapeHtml(live.averageBundlesPerSlot.toFixed(1))}</span><span class="stat-label">Avg/Slot</span></div>
         </div>
 
-        <h3>Averages <span class="hint-text">(last ${averages.windowMinutes}m, ${averages.sampleCount} samples)</span></h3>
+        <h3>Averages <span class="hint-text">(last ${escapeHtml(String(averages.windowMinutes))}m, ${escapeHtml(String(averages.sampleCount))} samples)</span></h3>
         <div class="stats-row">
           <div class="stat-card"><span class="stat-value">${escapeHtml(String(averages.avgQueueDepth))}</span><span class="stat-label">Avg Queue Depth</span></div>
           <div class="stat-card"><span class="stat-value">${escapeHtml(String(averages.avgSlotCount))}</span><span class="stat-label">Avg Slots</span></div>

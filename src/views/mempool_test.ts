@@ -1,16 +1,6 @@
 import { assertEquals } from "jsr:@std/assert";
 import type { MempoolLive, MempoolAverages, MempoolConfig } from "../lib/api.ts";
 
-// Minimal DOM shim for Deno test environment
-function createEl(): HTMLElement {
-  return {
-    innerHTML: "",
-    className: "",
-    querySelector: () => null,
-    appendChild: () => {},
-  } as unknown as HTMLElement;
-}
-
 // Test the null-coalescing logic extracted from the view
 function applyDefaults(data: {
   platformVersion?: string;
