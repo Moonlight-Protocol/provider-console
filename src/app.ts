@@ -8,7 +8,6 @@ import { operationsView } from "./views/operations.ts";
 import { mempoolView } from "./views/mempool.ts";
 import { treasuryView } from "./views/treasury.ts";
 import { auditView } from "./views/audit.ts";
-import { analyticsView } from "./views/analytics.ts";
 
 // Initialize analytics (NOOP in dev)
 initAnalytics();
@@ -20,7 +19,6 @@ route("/operations", operationsView);
 route("/mempool", mempoolView);
 route("/treasury", treasuryView);
 route("/audit", auditView);
-route("/analytics", analyticsView);
 
 // Default route
 route("/", () => {

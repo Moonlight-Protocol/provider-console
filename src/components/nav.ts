@@ -17,7 +17,6 @@ export function renderNav(): HTMLElement {
         <a href="#/mempool">Mempool</a>
         <a href="#/treasury">Treasury</a>
         <a href="#/audit">Audit Export</a>
-        <a href="#/analytics">Analytics</a>
         <button id="logout-btn" class="btn-link">Logout</button>
       </div>
     </div>
