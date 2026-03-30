@@ -1,4 +1,5 @@
-import { clearToken } from "../lib/api.ts";
+import { clearPlatformAuth } from "../lib/api.ts";
+import { clearSession } from "../lib/wallet.ts";
 import { resetAnalytics } from "../lib/analytics.ts";
 import { navigate } from "../lib/router.ts";
 import { escapeHtml } from "../lib/dom.ts";
@@ -10,20 +11,17 @@ export function renderNav(): HTMLElement {
   const nav = document.createElement("nav");
   nav.innerHTML = `
     <div class="nav-inner">
-      <span class="nav-brand">Provider Console <span class="version-badge">v${appVersion}</span></span>
+      <a href="#/" class="nav-brand" style="text-decoration:none">Provider Console <span class="version-badge">v${appVersion}</span></a>
       <div class="nav-links">
-        <a href="#/channels">Channels</a>
-        <a href="#/operations">Operations</a>
-        <a href="#/mempool">Mempool</a>
-        <a href="#/treasury">Treasury</a>
-        <a href="#/audit">Audit Export</a>
+        <a href="#/">Home</a>
         <button id="logout-btn" class="btn-link">Logout</button>
       </div>
     </div>
   `;
 
   nav.querySelector("#logout-btn")?.addEventListener("click", () => {
-    clearToken();
+    clearPlatformAuth();
+    clearSession();
     resetAnalytics();
     navigate("/login");
   });

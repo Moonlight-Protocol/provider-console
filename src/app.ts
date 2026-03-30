@@ -3,27 +3,25 @@ import { initAnalytics } from "./lib/analytics.ts";
 import { isAuthenticated } from "./lib/api.ts";
 
 import { loginView } from "./views/login.ts";
-import { channelsView } from "./views/channels.ts";
-import { operationsView } from "./views/operations.ts";
-import { mempoolView } from "./views/mempool.ts";
-import { treasuryView } from "./views/treasury.ts";
-import { auditView } from "./views/audit.ts";
+import { homeView } from "./views/home.ts";
+import { fundView } from "./views/setup/fund.ts";
+import { joinView } from "./views/setup/join.ts";
+import { dashboardView } from "./views/dashboard.ts";
 
 // Initialize analytics (NOOP in dev)
 initAnalytics();
 
 // Register routes
 route("/login", loginView);
-route("/channels", channelsView);
-route("/operations", operationsView);
-route("/mempool", mempoolView);
-route("/treasury", treasuryView);
-route("/audit", auditView);
+route("/setup/fund", fundView);
+route("/setup/join", joinView);
+route("/dashboard", dashboardView);
+route("/home", homeView);
 
-// Default route
+// Root — redirect based on auth state
 route("/", () => {
   if (isAuthenticated()) {
-    navigate("/channels");
+    navigate("/home");
   } else {
     navigate("/login");
   }
@@ -34,7 +32,7 @@ route("/", () => {
 route("/404", () => {
   const el = document.createElement("div");
   el.className = "login-container";
-  el.innerHTML = `<div class="login-card"><h1>404</h1><p>Page not found.</p><a href="#/channels">Back to dashboard</a></div>`;
+  el.innerHTML = `<div class="login-card"><h1>404</h1><p>Page not found.</p><a href="#/">Back to home</a></div>`;
   return el;
 });
 
