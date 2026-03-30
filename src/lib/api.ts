@@ -1,149 +1,177 @@
-import { API_BASE_URL } from "./config.ts";
-
 /**
  * API client for the provider-platform dashboard endpoints.
+ * Auth follows the exact same pattern as council-console/lib/platform.ts.
  */
+import { API_BASE_URL } from "./config.ts";
+import { signMessage, getConnectedAddress } from "./wallet.ts";
 
-let authToken: string | null = null;
+const TOKEN_KEY = "console_token";
 
-export function setToken(token: string): void {
-  authToken = token;
-  localStorage.setItem("console_token", token);
-}
+let authToken: string | null = localStorage.getItem(TOKEN_KEY);
 
-export function getToken(): string | null {
-  if (!authToken) {
-    authToken = localStorage.getItem("console_token");
+/**
+ * Authenticate with provider-platform via challenge-response.
+ * The wallet signs the nonce (SEP-53), platform verifies and returns a JWT.
+ * This is the same flow as council-console's authenticate().
+ */
+export async function authenticate(): Promise<string> {
+  const publicKey = getConnectedAddress();
+  if (!publicKey) throw new Error("Wallet not connected");
+
+  // Step 1: Request challenge nonce
+  const challengeRes = await fetch(`${API_BASE_URL}/dashboard/auth/challenge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ publicKey }),
+  });
+  if (!challengeRes.ok) {
+    throw new Error(`Failed to get auth challenge: ${challengeRes.status}`);
   }
-  return authToken;
-}
+  const { data: { nonce } } = await challengeRes.json();
 
-export function clearToken(): void {
-  authToken = null;
-  localStorage.removeItem("console_token");
+  // Step 2: Sign nonce with wallet (SEP-53 format)
+  const signature = await signMessage(nonce);
+
+  // Step 3: Verify signature, receive JWT
+  const verifyRes = await fetch(`${API_BASE_URL}/dashboard/auth/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nonce, signature, publicKey }),
+  });
+  if (!verifyRes.ok) {
+    throw new Error("Platform authentication failed");
+  }
+  const { data: { token } } = await verifyRes.json();
+
+  authToken = token;
+  localStorage.setItem(TOKEN_KEY, token);
+  return token;
 }
 
 export function isAuthenticated(): boolean {
-  const token = getToken();
-  if (!token) return false;
-
-  // Check JWT expiry (tokens are base64url-encoded JSON)
+  if (!authToken) return false;
   try {
-    const b64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const b64 = authToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
     const payload = JSON.parse(atob(b64));
-    if (typeof payload.exp === "number" && Date.now() / 1000 > payload.exp) {
-      clearToken();
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      clearPlatformAuth();
       return false;
     }
   } catch {
-    clearToken();
+    clearPlatformAuth();
     return false;
   }
   return true;
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = getToken();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+export function clearPlatformAuth(): void {
+  authToken = null;
+  localStorage.removeItem(TOKEN_KEY);
+}
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: { ...headers, ...options?.headers },
-  });
+/**
+ * Authenticated fetch wrapper. Auto-redirects to login on 401.
+ */
+async function platformFetch(path: string, opts: RequestInit = {}): Promise<Response> {
+  if (!authToken) throw new Error("Not authenticated. Please sign in first.");
 
-  if (response.status === 401) {
-    clearToken();
+  const doFetch = () =>
+    fetch(`${API_BASE_URL}${path}`, {
+      ...opts,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${authToken}`,
+        ...(opts.headers as Record<string, string> ?? {}),
+      },
+    });
+
+  const res = await doFetch();
+  if (res.status === 401) {
+    clearPlatformAuth();
     window.location.hash = "#/login";
-    throw new Error("Unauthorized");
+    throw new Error("Session expired");
   }
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.message || body.error || `HTTP ${response.status}`);
-  }
-
-  // Handle CSV responses
-  const contentType = response.headers.get("Content-Type") || "";
-  if (contentType.includes("text/csv")) {
-    return (await response.text()) as unknown as T;
-  }
-
-  return response.json();
+  return res;
 }
 
-// --- Auth (SEP-10 transaction-based challenge) ---
+// --- Council (UC2) ---
 
-export async function requestStellarChallenge(publicKey: string): Promise<{ challenge: string }> {
-  const res = await request<{ data: { challenge: string } }>(`/stellar/auth?account=${encodeURIComponent(publicKey)}`, {
-    method: "GET",
-  });
-  return res.data;
+export interface CouncilInfo {
+  councilUrl: string;
+  council: {
+    name: string;
+    description: string | null;
+    contactEmail: string | null;
+    channelAuthId: string;
+    councilPublicKey: string;
+  };
+  jurisdictions: Array<{ countryCode: string; label: string | null }>;
+  channels: Array<{ channelContractId: string; assetCode: string; label: string | null }>;
+  providers: Array<{ publicKey: string; label: string | null }>;
 }
 
-export async function verifyStellarChallenge(signedChallenge: string): Promise<{ jwt: string }> {
-  const res = await request<{ data: { jwt: string } }>("/stellar/auth", {
+export async function discoverCouncil(councilUrl: string): Promise<CouncilInfo> {
+  const res = await platformFetch("/dashboard/council/discover", {
     method: "POST",
-    body: JSON.stringify({ signedChallenge }),
+    body: JSON.stringify({ councilUrl }),
   });
-  return res.data;
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || `Discovery failed: HTTP ${res.status}`);
+  }
+  const { data } = await res.json();
+  return data;
 }
 
-// --- Dashboard data ---
-
-export interface MempoolLive {
-  totalSlots: number;
-  totalBundles: number;
-  totalWeight: number;
-  averageBundlesPerSlot: number;
+export async function joinCouncil(data: {
+  councilUrl: string;
+  label?: string;
+  contactEmail?: string;
+  jurisdictions?: string[];
+}): Promise<{ joinRequestId: string; status: string }> {
+  const res = await platformFetch("/dashboard/council/join", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || "Failed to join council");
+  }
+  const { data: resData } = await res.json();
+  return resData;
 }
 
-export interface MempoolAverages {
-  windowMinutes: number;
-  sampleCount: number;
-  avgQueueDepth: number;
-  avgSlotCount: number;
-  avgProcessingMs: number;
-  avgThroughputPerMin: number;
+export interface CouncilMembership {
+  id: string;
+  councilUrl: string;
+  councilName: string | null;
+  councilPublicKey: string;
+  channelAuthId: string;
+  status: "PENDING" | "ACTIVE" | "REJECTED";
+  config: unknown | null;
+  joinRequestId: string | null;
+  createdAt: string;
 }
 
-export interface MempoolConfig {
-  slotCapacity: number;
-  expensiveOpWeight: number;
-  cheapOpWeight: number;
-  executorIntervalMs: number;
-  verifierIntervalMs: number;
-  ttlCheckIntervalMs: number;
+export async function getCouncilMembership(): Promise<CouncilMembership | null> {
+  const res = await platformFetch("/dashboard/council/membership");
+  if (!res.ok) throw new Error("Failed to retrieve membership");
+  const { data } = await res.json();
+  return data;
 }
 
-export interface MempoolResponse {
-  platformVersion?: string;
-  live?: MempoolLive;
-  averages?: MempoolAverages;
-  config: MempoolConfig;
+// --- Treasury (for fund check) ---
+
+export interface TreasuryData {
+  address: string;
+  sequence: string;
+  balances: Array<{ asset_type: string; asset_code?: string; balance: string }>;
+  lastModifiedLedger: number;
 }
 
-export async function getChannels() {
-  return request<{ data: { channels: unknown[]; summary: unknown } }>("/dashboard/channels");
-}
-
-export async function getMempool() {
-  return request<{ data: MempoolResponse }>("/dashboard/mempool");
-}
-
-export async function getOperations() {
-  return request<{ data: { bundles: unknown; transactions: unknown } }>("/dashboard/operations");
-}
-
-export async function getTreasury() {
-  return request<{ data: { address: string; sequence: string; balances: unknown[]; lastModifiedLedger: number } }>("/dashboard/treasury");
-}
-
-export async function getAuditExport(status = "COMPLETED", from?: string, to?: string): Promise<string> {
-  const params = new URLSearchParams({ status });
-  if (from) params.set("from", from);
-  if (to) params.set("to", to);
-  return request<string>(`/dashboard/audit-export?${params}`);
+export async function getTreasury(): Promise<TreasuryData> {
+  const res = await platformFetch("/dashboard/treasury");
+  if (!res.ok) throw new Error("Failed to fetch treasury info");
+  const { data } = await res.json();
+  return data;
 }
