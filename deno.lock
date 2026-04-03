@@ -8,7 +8,8 @@
     "jsr:@std/path@*": "0.213.1",
     "jsr:@std/path@0.213": "0.213.1",
     "npm:@creit.tech/stellar-wallets-kit@^1.4.0": "1.9.5_@stellar+stellar-base@14.1.0_rxjs@7.8.1_@ngneat+elf@2.5.1__rxjs@7.8.1",
-    "npm:@stellar/stellar-base@14.1.0": "14.1.0"
+    "npm:@stellar/stellar-base@14.1.0": "14.1.0",
+    "npm:buffer@^6.0.3": "6.0.3"
   },
   "jsr": {
     "@luca/esbuild-deno-loader@0.10.3": {
@@ -1102,7 +1103,7 @@
     "@trezor/analytics@1.4.2_tslib@2.8.1": {
       "integrity": "sha512-FgjJekuDvx1TjiDemvpnPiRck7Kp/v1ZeppsBYpQR3yGKyKzbG1pVpcl0RyI2237raXxbORaz7XV8tcyjq4BXg==",
       "dependencies": [
-        "@trezor/env-utils@1.4.2_tslib@2.8.1",
+        "@trezor/env-utils",
         "@trezor/utils@9.4.2_tslib@2.8.1",
         "tslib@2.8.1"
       ]
@@ -1119,7 +1120,7 @@
       "dependencies": [
         "@mobily/ts-belt",
         "@stellar/stellar-sdk",
-        "@trezor/env-utils@1.4.2_tslib@2.8.1",
+        "@trezor/env-utils",
         "@trezor/utils@9.4.2_tslib@2.8.1",
         "tslib@2.8.1",
         "xrpl"
@@ -1136,7 +1137,7 @@
         "@stellar/stellar-sdk",
         "@trezor/blockchain-link-types",
         "@trezor/blockchain-link-utils",
-        "@trezor/env-utils@1.4.2_tslib@2.8.1",
+        "@trezor/env-utils",
         "@trezor/utils@9.4.2_tslib@2.8.1",
         "@trezor/utxo-lib",
         "@trezor/websocket-client",
@@ -1157,7 +1158,7 @@
     "@trezor/connect-common@0.4.2_tslib@2.8.1": {
       "integrity": "sha512-ND5TTjrTPnJdfl8Wlhl9YtFWnY2u6FHM1dsPkNYCmyUKIMoflJ5cLn95Xabl6l1btHERYn3wTUvgEYQG7r8OVQ==",
       "dependencies": [
-        "@trezor/env-utils@1.4.2_tslib@2.8.1",
+        "@trezor/env-utils",
         "@trezor/utils@9.4.2_tslib@2.8.1",
         "tslib@2.8.1"
       ]
@@ -1202,7 +1203,7 @@
         "@trezor/connect-common",
         "@trezor/crypto-utils",
         "@trezor/device-utils",
-        "@trezor/env-utils@1.5.0_tslib@2.8.1",
+        "@trezor/env-utils",
         "@trezor/protobuf",
         "@trezor/protocol",
         "@trezor/schema-utils",
@@ -1229,13 +1230,6 @@
     },
     "@trezor/env-utils@1.4.2_tslib@2.8.1": {
       "integrity": "sha512-lQvrqcNK5I4dy2MuiLyMuEm0KzY59RIu2GLtc9GsvqyxSPZkADqVzGeLJjXj/vI2ajL8leSpMvmN4zPw3EK8AA==",
-      "dependencies": [
-        "tslib@2.8.1",
-        "ua-parser-js"
-      ]
-    },
-    "@trezor/env-utils@1.5.0_tslib@2.8.1": {
-      "integrity": "sha512-u1TN7dMQ5Qhpbae08Z4JJmI9fQrbbJ4yj8eIAsuzMQn6vb+Sg9vbntl+IDsZ1G9WeI73uHTLu1wWMmAgiujH8w==",
       "dependencies": [
         "tslib@2.8.1",
         "ua-parser-js"
@@ -1678,8 +1672,7 @@
       "integrity": "sha512-LcknSilhIGatDAsY1ak2I8VtGaHNhgMSYVxFrGLXv+xLHytaKZKcaUJJUE7qmBr7h33o5YQwP55pMI0xmkpJwg=="
     },
     "big-integer@1.6.36": {
-      "integrity": "sha512-t70bfa7HYEA1D9idDbmuv7YbsbVkQ+Hp+8KFSul4aE5e/i1bjCNIRYJZlA8Q8p0r9T8cF/RVvwUgRA//FydEyg==",
-      "bin": true
+      "integrity": "sha512-t70bfa7HYEA1D9idDbmuv7YbsbVkQ+Hp+8KFSul4aE5e/i1bjCNIRYJZlA8Q8p0r9T8cF/RVvwUgRA//FydEyg=="
     },
     "bignumber.js@9.3.1": {
       "integrity": "sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ=="
@@ -3181,7 +3174,8 @@
     "dependencies": [
       "jsr:@std/path@1",
       "npm:@creit.tech/stellar-wallets-kit@^1.4.0",
-      "npm:@stellar/stellar-base@14.1.0"
+      "npm:@stellar/stellar-base@14.1.0",
+      "npm:buffer@^6.0.3"
     ]
   }
 }
