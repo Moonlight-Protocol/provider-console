@@ -18,7 +18,10 @@ await esbuild.build({
   target: "es2022",
   minify: isProduction,
   sourcemap: !isProduction,
-  define: { "__APP_VERSION__": JSON.stringify(version) },
+  define: {
+    "__APP_VERSION__": JSON.stringify(version),
+    "__DEV_MODE__": JSON.stringify(!isProduction),
+  },
   inject: ["src/shims/buffer.ts"],
   plugins: [...denoPlugins({ configPath: `${Deno.cwd()}/deno.json` })],
 });

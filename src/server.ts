@@ -16,6 +16,8 @@ const SECURITY_HEADERS: Record<string, string> = {
 function getCSP(): string {
   const apiUrl = Deno.env.get("API_BASE_URL") || "http://localhost:8000";
   const posthogHost = Deno.env.get("POSTHOG_HOST") || "";
+  const environment = Deno.env.get("ENVIRONMENT") || "development";
+  const devSources = environment !== "production" ? " https://api.github.com" : "";
   const connectSrc = [apiUrl, posthogHost].filter(Boolean).join(" ");
   return [
     "default-src 'self'",
@@ -23,7 +25,7 @@ function getCSP(): string {
     // unsafe-inline required for Stellar Wallets Kit Lit modal (inline styles)
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' https://stellar.creit.tech",
-    `connect-src 'self' ${connectSrc}`,
+    `connect-src 'self' ${connectSrc}${devSources}`,
   ].join("; ");
 }
 
