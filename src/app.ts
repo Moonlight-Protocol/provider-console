@@ -40,3 +40,12 @@ route("/404", () => {
 
 // Start
 startRouter();
+
+// Dev-mode version check — __DEV_MODE__ is false in production, esbuild removes the block
+import { checkVersions } from "./lib/version-check.ts";
+declare const __DEV_MODE__: boolean;
+if (__DEV_MODE__) {
+  checkVersions().then((banner) => {
+    if (banner) document.body.prepend(banner);
+  });
+}

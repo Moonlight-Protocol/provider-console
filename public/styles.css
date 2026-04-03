@@ -327,3 +327,12 @@ h3 { margin: 1.5rem 0 0.5rem; color: var(--text-muted); font-size: 0.875rem; tex
   border-radius: 4px;
   vertical-align: middle;
 }
+
+/* Dev version mismatch banner */
+.version-mismatch-banner {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem 1.5rem;
+  font-size: 0.75rem;
+  text-align: center;
+}
