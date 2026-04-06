@@ -4,19 +4,27 @@ import { isAuthenticated } from "./lib/api.ts";
 
 import { loginView } from "./views/login.ts";
 import { homeView } from "./views/home.ts";
+import { ppManageView } from "./views/pp-manage.ts";
+import { dashboardView } from "./views/dashboard.ts";
+import { recoverView } from "./views/recover.ts";
+
+// Setup flow
+import { metadataView } from "./views/setup/metadata.ts";
 import { fundView } from "./views/setup/fund.ts";
 import { joinView } from "./views/setup/join.ts";
-import { dashboardView } from "./views/dashboard.ts";
 
 // Initialize analytics (NOOP in dev)
 initAnalytics();
 
 // Register routes
 route("/login", loginView);
+route("/home", homeView);
+route("/pp", ppManageView);
+route("/setup/metadata", metadataView);
 route("/setup/fund", fundView);
 route("/setup/join", joinView);
 route("/dashboard", dashboardView);
-route("/home", homeView);
+route("/recover", recoverView);
 
 // Root — redirect based on auth state
 route("/", () => {

@@ -1,11 +1,11 @@
 import { isAuthenticated, authenticate, clearPlatformAuth } from "../lib/api.ts";
-import { isWalletConnected, connectWallet, getConnectedAddress, clearSession } from "../lib/wallet.ts";
+import { isWalletConnected, connectWallet, getConnectedAddress, clearSession, initMasterSeed, isMasterSeedReady } from "../lib/wallet.ts";
 import { identify, capture } from "../lib/analytics.ts";
 import { navigate } from "../lib/router.ts";
 import { escapeHtml } from "../lib/dom.ts";
 
 export function loginView(): HTMLElement {
-  if (isAuthenticated()) {
+  if (isAuthenticated() && isMasterSeedReady()) {
     navigate("/");
     return document.createElement("div");
   }
@@ -28,19 +28,16 @@ export function loginView(): HTMLElement {
       <div id="step-signin" ${walletConnected ? '' : 'hidden'}>
         <p>Connected as:</p>
         <p class="mono" style="font-size:0.8rem;word-break:break-all;margin-bottom:1rem;color:var(--text-muted)">${escapeHtml(address || "")}</p>
-        <p>Sign a message to authenticate with the provider platform.</p>
         <button id="signin-btn" class="btn-primary btn-wide">Sign In</button>
         <button id="change-wallet-btn" class="btn-link" style="margin-top:0.75rem;display:block;text-align:center;width:100%;color:var(--text-muted)">Use a different wallet</button>
       </div>
 
-      <p id="login-status" class="hint-text" hidden></p>
-      <p id="login-error" class="error-text" hidden></p>
+      <p id="login-error" class="error-text" style="text-align:center" hidden></p>
     </div>
   `;
 
   const connectStep = container.querySelector("#step-connect") as HTMLDivElement;
   const signinStep = container.querySelector("#step-signin") as HTMLDivElement;
-  const statusEl = container.querySelector("#login-status") as HTMLParagraphElement;
   const errorEl = container.querySelector("#login-error") as HTMLParagraphElement;
 
   // Change wallet: clear session and go back to step 1
@@ -80,20 +77,30 @@ export function loginView(): HTMLElement {
   // Step 2: Sign In (platform auth)
   container.querySelector("#signin-btn")?.addEventListener("click", async () => {
     const btn = container.querySelector("#signin-btn") as HTMLButtonElement;
+    const originalText = btn.textContent;
     btn.disabled = true;
     errorEl.hidden = true;
-    statusEl.textContent = "Waiting for signature...";
-    statusEl.hidden = false;
 
     try {
+      btn.textContent = "Setting up...";
+      await initMasterSeed();
+      await new Promise(r => setTimeout(r, 1000));
+      btn.textContent = "Authenticating...";
       await authenticate();
       capture("provider_login", { publicKey: getConnectedAddress() });
       navigate("/");
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Authentication failed";
+      let msg: string;
+      if (error instanceof Error) {
+        msg = error.message;
+      } else if (typeof error === "object" && error !== null && "message" in error) {
+        msg = String((error as { message: unknown }).message);
+      } else {
+        msg = JSON.stringify(error) ?? "Unknown error";
+      }
       errorEl.textContent = msg;
       errorEl.hidden = false;
-      statusEl.hidden = true;
+      btn.textContent = originalText;
       btn.disabled = false;
     }
   });

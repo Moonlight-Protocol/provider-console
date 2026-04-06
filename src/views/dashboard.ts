@@ -9,7 +9,8 @@ function renderContent(): HTMLElement {
   const loadingEl = el.querySelector("#dash-loading") as HTMLDivElement;
   const contentEl = el.querySelector("#dash-content") as HTMLDivElement;
 
-  Promise.all([getCouncilMembership(), getTreasury()])
+  const ppPublicKey = sessionStorage.getItem("selected_pp") || "";
+  Promise.all([getCouncilMembership(ppPublicKey), getTreasury()])
     .then(([membership, treasury]) => {
       loadingEl.hidden = true;
       contentEl.hidden = false;

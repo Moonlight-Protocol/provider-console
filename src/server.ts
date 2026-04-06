@@ -14,18 +14,30 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 function getCSP(): string {
-  const apiUrl = Deno.env.get("API_BASE_URL") || "http://localhost:8000";
-  const posthogHost = Deno.env.get("POSTHOG_HOST") || "";
   const environment = Deno.env.get("ENVIRONMENT") || "development";
-  const devSources = environment !== "production" ? " https://api.github.com" : "";
-  const connectSrc = [apiUrl, posthogHost].filter(Boolean).join(" ");
+  const posthogHost = Deno.env.get("POSTHOG_HOST") || "";
+
+  const connectSrc = [
+    "'self'",
+    "https://soroban-testnet.stellar.org",
+    "https://horizon-testnet.stellar.org",
+    "https://us.i.posthog.com",
+  ];
+
+  if (posthogHost) connectSrc.push(posthogHost);
+
+  // In development, allow connections to local services
+  if (environment !== "production") {
+    connectSrc.push("http://localhost:*");
+    connectSrc.push("https://api.github.com");
+  }
+
   return [
     "default-src 'self'",
     "script-src 'self' https://us-assets.i.posthog.com",
-    // unsafe-inline required for Stellar Wallets Kit Lit modal (inline styles)
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' https://stellar.creit.tech",
-    `connect-src 'self' ${connectSrc}${devSources}`,
+    `connect-src ${connectSrc.join(" ")}`,
   ].join("; ");
 }
 

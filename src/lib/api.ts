@@ -12,13 +12,11 @@ let authToken: string | null = localStorage.getItem(TOKEN_KEY);
 /**
  * Authenticate with provider-platform via challenge-response.
  * The wallet signs the nonce (SEP-53), platform verifies and returns a JWT.
- * This is the same flow as council-console's authenticate().
  */
 export async function authenticate(): Promise<string> {
   const publicKey = getConnectedAddress();
   if (!publicKey) throw new Error("Wallet not connected");
 
-  // Step 1: Request challenge nonce
   const challengeRes = await fetch(`${API_BASE_URL}/dashboard/auth/challenge`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -29,10 +27,8 @@ export async function authenticate(): Promise<string> {
   }
   const { data: { nonce } } = await challengeRes.json();
 
-  // Step 2: Sign nonce with wallet (SEP-53 format)
   const signature = await signMessage(nonce);
 
-  // Step 3: Verify signature, receive JWT
   const verifyRes = await fetch(`${API_BASE_URL}/dashboard/auth/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -69,9 +65,6 @@ export function clearPlatformAuth(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
-/**
- * Authenticated fetch wrapper. Auto-redirects to login on 401.
- */
 async function platformFetch(path: string, opts: RequestInit = {}): Promise<Response> {
   if (!authToken) throw new Error("Not authenticated. Please sign in first.");
 
@@ -93,6 +86,74 @@ async function platformFetch(path: string, opts: RequestInit = {}): Promise<Resp
   }
   return res;
 }
+
+// --- Signing ---
+
+/**
+ * Sign a payload with a Stellar secret key (Ed25519).
+ * Matches the council-platform's verifyPayload format:
+ *   SHA-256(JSON.stringify({ payload, timestamp })) → Ed25519 sign → base64
+ */
+export async function signPayload<T>(payload: T, secretKey: string): Promise<{
+  payload: T; signature: string; publicKey: string; timestamp: number;
+}> {
+  const { Keypair } = await import("stellar-base");
+  const { Buffer } = await import("buffer");
+  const keypair = Keypair.fromSecret(secretKey);
+  const timestamp = Date.now();
+  const canonical = JSON.stringify({ payload, timestamp });
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
+  const signature = Buffer.from(keypair.sign(Buffer.from(hash))).toString("base64");
+  return { payload, signature, publicKey: keypair.publicKey(), timestamp };
+}
+
+// --- PP management ---
+
+export interface PpInfo {
+  publicKey: string;
+  derivationIndex: number;
+  label: string | null;
+  isActive: boolean;
+  createdAt: string;
+  councilMembership: {
+    councilUrl: string;
+    councilName: string | null;
+    status: string;
+    channelAuthId: string;
+  } | null;
+}
+
+export async function registerPp(secretKey: string, derivationIndex: number, label?: string): Promise<{ publicKey: string }> {
+  const res = await platformFetch("/dashboard/pp/register", {
+    method: "POST",
+    body: JSON.stringify({ secretKey, derivationIndex, label }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || "Failed to register PP");
+  }
+  const { data } = await res.json();
+  return data;
+}
+
+export async function listPps(): Promise<PpInfo[]> {
+  const res = await platformFetch("/dashboard/pp/list");
+  if (!res.ok) throw new Error("Failed to list PPs");
+  const { data } = await res.json();
+  return data;
+}
+
+export async function deletePp(publicKey: string): Promise<void> {
+  const res = await platformFetch("/dashboard/pp/delete", {
+    method: "POST",
+    body: JSON.stringify({ publicKey }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || "Failed to delete provider");
+  }
+}
+
 
 // --- Council (UC2) ---
 
@@ -125,9 +186,11 @@ export async function discoverCouncil(councilUrl: string): Promise<CouncilInfo> 
 
 export async function joinCouncil(data: {
   councilUrl: string;
-  label?: string;
-  contactEmail?: string;
-  jurisdictions?: string[];
+  councilId: string;
+  councilName?: string;
+  councilPublicKey?: string;
+  ppPublicKey: string;
+  signedEnvelope: { payload: unknown; signature: string; publicKey: string; timestamp: number };
 }): Promise<{ joinRequestId: string; status: string }> {
   const res = await platformFetch("/dashboard/council/join", {
     method: "POST",
@@ -150,14 +213,30 @@ export interface CouncilMembership {
   status: "PENDING" | "ACTIVE" | "REJECTED";
   config: unknown | null;
   joinRequestId: string | null;
+  ppPublicKey: string | null;
   createdAt: string;
 }
 
-export async function getCouncilMembership(): Promise<CouncilMembership | null> {
-  const res = await platformFetch("/dashboard/council/membership");
+export async function getCouncilMembership(ppPublicKey: string): Promise<CouncilMembership | null> {
+  const res = await platformFetch(`/dashboard/council/membership?ppPublicKey=${encodeURIComponent(ppPublicKey)}`);
   if (!res.ok) throw new Error("Failed to retrieve membership");
   const { data } = await res.json();
   return data;
+}
+
+/**
+ * Sync a PP's membership status via the provider-platform.
+ * The platform queries the council and updates its local DB.
+ * Returns the synced status.
+ */
+export async function checkMembershipStatus(ppPublicKey: string): Promise<"ACTIVE" | "PENDING" | "REJECTED"> {
+  const res = await platformFetch("/dashboard/council/membership", {
+    method: "POST",
+    body: JSON.stringify({ ppPublicKey }),
+  });
+  if (!res.ok) return "PENDING";
+  const { data } = await res.json();
+  return data?.status ?? "PENDING";
 }
 
 // --- Treasury (for fund check) ---
