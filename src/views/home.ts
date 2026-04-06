@@ -1,10 +1,8 @@
 import { page } from "../components/page.ts";
 import { escapeHtml } from "../lib/dom.ts";
 import { navigate } from "../lib/router.ts";
-import { listPps, registerPp, deletePp, checkMembershipStatus, discoverCouncil, joinCouncil, type PpInfo, type CouncilInfo } from "../lib/api.ts";
+import { listPps, deletePp, checkMembershipStatus, discoverCouncil, joinCouncil, type PpInfo, type CouncilInfo } from "../lib/api.ts";
 import { capture } from "../lib/analytics.ts";
-import { derivePpKeypair } from "../lib/wallet.ts";
-import { COUNTRY_CODES } from "../lib/jurisdictions.ts";
 
 
 function truncate(key: string): string {
@@ -36,7 +34,7 @@ function renderContent(): HTMLElement {
       for (const pp of pendingPps) {
         checkMembershipStatus(pp.publicKey).then((status) => {
           if (status === "PENDING") return;
-          const badge = contentEl.querySelector(`.check-status-btn[data-pp-key="${pp.publicKey}"]`);
+          const badge = contentEl.querySelector(`.check-status-btn[data-pp-key="${CSS.escape(pp.publicKey)}"]`);
           if (!badge) return;
           if (status === "ACTIVE") {
             (badge as HTMLElement).className = "badge badge-active";
@@ -186,176 +184,6 @@ function renderContent(): HTMLElement {
 
   loadAndRender();
   return el;
-}
-
-
-function openCreatePpModal(existingPps: PpInfo[], onCreated: () => Promise<void>) {
-  document.querySelector("#create-pp-modal")?.remove();
-
-  const selectedJurisdictions = new Set<string>();
-
-  const overlay = document.createElement("div");
-  overlay.id = "create-pp-modal";
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal">
-      <div class="modal-header">
-        <h3>New Provider</h3>
-        <button class="modal-close" id="modal-close-btn">&times;</button>
-      </div>
-      <div class="form-group">
-        <label for="pp-name">Provider name</label>
-        <input type="text" id="pp-name" placeholder="Acme Privacy Inc" />
-      </div>
-      <div class="form-group">
-        <label for="pp-email">Contact email</label>
-        <input type="email" id="pp-email" placeholder="admin@acme.com" />
-      </div>
-      <div class="form-group">
-        <label>Jurisdictions</label>
-        <div id="pp-jurisdiction-tags" class="jurisdiction-tags"></div>
-        <div class="jurisdiction-picker">
-          <input type="text" id="pp-jurisdiction-filter" placeholder="Search countries..."
-            style="border:none;border-bottom:1px solid var(--border);border-radius:0;position:sticky;top:0;background:var(--bg);z-index:1" />
-          <div id="pp-jurisdiction-list" class="jurisdiction-list"></div>
-        </div>
-      </div>
-      <button id="modal-create-btn" class="btn-primary btn-wide" style="margin-top:0.5rem">Create Provider</button>
-      <p id="modal-error" class="error-text" style="margin-top:0.75rem" hidden></p>
-    </div>
-  `;
-
-  document.body.appendChild(overlay);
-
-  const closeBtn = overlay.querySelector("#modal-close-btn") as HTMLButtonElement;
-  const createBtn = overlay.querySelector("#modal-create-btn") as HTMLButtonElement;
-  const errorEl = overlay.querySelector("#modal-error") as HTMLParagraphElement;
-  const nameInput = overlay.querySelector("#pp-name") as HTMLInputElement;
-  const tagsEl = overlay.querySelector("#pp-jurisdiction-tags") as HTMLDivElement;
-  const filterEl = overlay.querySelector("#pp-jurisdiction-filter") as HTMLInputElement;
-  const listEl = overlay.querySelector("#pp-jurisdiction-list") as HTMLDivElement;
-
-  function renderTags() {
-    tagsEl.innerHTML = "";
-    for (const code of selectedJurisdictions) {
-      const entry = COUNTRY_CODES.find((c) => c.code === code);
-      if (!entry) continue;
-      const tag = document.createElement("span");
-      tag.className = "jurisdiction-tag";
-      tag.textContent = `${entry.code} `;
-      const x = document.createElement("button");
-      x.textContent = "\u00d7";
-      x.style.cssText = "background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0 0 0 0.25rem;font-size:1rem";
-      x.addEventListener("click", () => {
-        selectedJurisdictions.delete(code);
-        renderTags();
-        renderList(filterEl.value);
-      });
-      tag.appendChild(x);
-      tagsEl.appendChild(tag);
-    }
-  }
-
-  function renderList(filter: string) {
-    listEl.innerHTML = "";
-    const q = filter.toLowerCase();
-    if (q.length < 2) {
-      const hint = document.createElement("p");
-      hint.style.cssText = "color:var(--text-muted);font-size:0.8rem;padding:0.5rem 0.75rem";
-      hint.textContent = "Type at least 2 characters to search...";
-      listEl.appendChild(hint);
-      return;
-    }
-    for (const country of COUNTRY_CODES) {
-      if (!country.label.toLowerCase().includes(q) && !country.code.toLowerCase().includes(q)) continue;
-      const selected = selectedJurisdictions.has(country.code);
-      const option = document.createElement("div");
-      option.className = "jurisdiction-option" + (selected ? " selected" : "");
-      const flag = country.code.toUpperCase().replace(/./g, (c: string) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65));
-      option.textContent = `${flag} ${country.label}`;
-      option.addEventListener("click", () => {
-        if (selected) selectedJurisdictions.delete(country.code);
-        else selectedJurisdictions.add(country.code);
-        renderTags();
-        if (!selected) { filterEl.value = ""; renderList(""); }
-        else renderList(filterEl.value);
-      });
-      listEl.appendChild(option);
-    }
-  }
-
-  filterEl.addEventListener("input", () => renderList(filterEl.value));
-  renderList("");
-
-  function close() { overlay.remove(); document.removeEventListener("keydown", onEsc); }
-  function onEsc(e: KeyboardEvent) { if (e.key === "Escape") close(); }
-  document.addEventListener("keydown", onEsc);
-
-  closeBtn.addEventListener("click", close);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
-
-  nameInput.focus();
-
-  createBtn.addEventListener("click", async () => {
-    const name = nameInput.value.trim();
-    const email = (overlay.querySelector("#pp-email") as HTMLInputElement).value.trim();
-    const jurisdictions = Array.from(selectedJurisdictions);
-
-    if (!name) {
-      errorEl.textContent = "Provider name is required";
-      errorEl.hidden = false;
-      return;
-    }
-
-    createBtn.disabled = true;
-    createBtn.textContent = "Creating privacy provider...";
-    errorEl.hidden = true;
-
-    try {
-      // Scan indices to find the first unused one.
-      // An index is "used" if the derived address has ever existed on-chain
-      // (funded at any point) OR is in the current PP list.
-      const { accountExists } = await import("../lib/horizon.ts");
-      const existingKeys = new Set(existingPps.map((p) => p.publicKey));
-      const MAX_SCAN = 20;
-      let index = -1;
-      let derived: { publicKey: string; secretKey: string } | null = null;
-
-      for (let i = 0; i < MAX_SCAN; i++) {
-        const kp = await derivePpKeypair(i);
-        if (existingKeys.has(kp.publicKey)) continue;
-        if (await accountExists(kp.publicKey)) continue;
-        index = i;
-        derived = kp;
-        break;
-      }
-
-      if (index === -1 || !derived) {
-        throw new Error("Could not find an available provider slot.");
-      }
-
-      createBtn.textContent = "Creating privacy provider...";
-      await registerPp(derived.secretKey, index, name);
-
-      const publicKey = derived.publicKey;
-
-      // Store metadata for use in join flow
-      const meta: Record<string, string | string[]> = { label: name };
-      if (email) meta.contactEmail = email;
-      if (jurisdictions.length > 0) meta.jurisdictions = jurisdictions;
-      localStorage.setItem(`pp_meta_${publicKey}`, JSON.stringify(meta));
-
-      close();
-      await onCreated();
-    } catch (err) {
-      errorEl.textContent = err instanceof Error ? err.message : "Failed to create provider";
-      errorEl.hidden = false;
-      createBtn.disabled = false;
-      createBtn.textContent = "Create Provider";
-    }
-  });
 }
 
 function openJoinCouncilModal(ppPublicKey: string, ppDerivationIndex: number, onJoined: () => Promise<void>) {

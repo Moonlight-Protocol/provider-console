@@ -84,6 +84,8 @@ export function loginView(): HTMLElement {
     try {
       btn.textContent = "Setting up...";
       await initMasterSeed();
+      // Freighter rejects consecutive signMessage calls without a delay between them.
+      // initMasterSeed signs once, and authenticate() signs again immediately after.
       await new Promise(r => setTimeout(r, 1000));
       btn.textContent = "Authenticating...";
       await authenticate();
@@ -96,7 +98,7 @@ export function loginView(): HTMLElement {
       } else if (typeof error === "object" && error !== null && "message" in error) {
         msg = String((error as { message: unknown }).message);
       } else {
-        msg = JSON.stringify(error) ?? "Unknown error";
+        msg = error instanceof Error ? error.message : String(error);
       }
       errorEl.textContent = msg;
       errorEl.hidden = false;

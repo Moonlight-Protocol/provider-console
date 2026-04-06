@@ -51,7 +51,13 @@ let masterSeed: Uint8Array | null = null;
 {
   const stored = sessionStorage.getItem(SEED_KEY);
   if (stored) {
-    masterSeed = Uint8Array.from(atob(stored), (c) => c.charCodeAt(0));
+    try {
+      masterSeed = Uint8Array.from(atob(stored), (c) => c.charCodeAt(0));
+    } catch {
+      // Corrupted base64 — clear and proceed without seed
+      sessionStorage.removeItem(SEED_KEY);
+      masterSeed = null;
+    }
   }
 }
 
@@ -61,6 +67,9 @@ let masterSeed: Uint8Array | null = null;
  */
 export async function initMasterSeed(): Promise<void> {
   const signature = await signMessage("Moonlight: authorize master key");
+  if (!signature || signature.length < 10) {
+    throw new Error("Invalid signature: too short or empty");
+  }
   const normalized = signature.replace(/-/g, "+").replace(/_/g, "/");
   const sigBytes = Uint8Array.from(atob(normalized), (c) => c.charCodeAt(0));
   masterSeed = new Uint8Array(await crypto.subtle.digest("SHA-256", sigBytes));
@@ -133,6 +142,8 @@ interface SignMessageResult {
 }
 
 export async function signMessage(message: string): Promise<string> {
+  // Double cast: StellarWalletsKit's type definitions don't include signMessage,
+  // but the runtime implementation exposes it via the active module's SEP-43 method.
   const walletKit = getKit() as unknown as WalletKitWithSignMessage;
   const address = getConnectedAddress();
   if (!address) throw new Error("Wallet not connected");

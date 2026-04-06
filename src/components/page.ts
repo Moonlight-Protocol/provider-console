@@ -75,7 +75,8 @@ export function page(renderContent: () => HTMLElement | Promise<HTMLElement>): (
     main.appendChild(content);
     wrapper.appendChild(main);
 
-    // Non-blocking background membership check
+    // Intentionally fire-and-forget — membership checks are best-effort and
+    // should not block page rendering or cancel on navigation.
     checkMemberships(wrapper);
 
     return wrapper;

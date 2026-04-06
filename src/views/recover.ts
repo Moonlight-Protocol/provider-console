@@ -11,6 +11,7 @@ interface RecoveredPp {
 }
 
 const MAX_CONSECUTIVE_MISSES = 5;
+const MAX_SCAN = 50;
 
 function renderContent(): HTMLElement {
   const el = document.createElement("div");
@@ -46,7 +47,7 @@ async function scanProviders(
   let consecutiveMisses = 0;
   let index = 0;
 
-  while (consecutiveMisses < MAX_CONSECUTIVE_MISSES) {
+  while (consecutiveMisses < MAX_CONSECUTIVE_MISSES && index < MAX_SCAN) {
     statusEl.textContent = `Scanning index ${index}...`;
 
     const kp = await derivePpKeypair(index);

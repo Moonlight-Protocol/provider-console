@@ -1,6 +1,7 @@
 import { page } from "../components/page.ts";
 import { escapeHtml } from "../lib/dom.ts";
 import { getCouncilMembership, getTreasury } from "../lib/api.ts";
+import { navigate } from "../lib/router.ts";
 
 function renderContent(): HTMLElement {
   const el = document.createElement("div");
@@ -10,6 +11,10 @@ function renderContent(): HTMLElement {
   const contentEl = el.querySelector("#dash-content") as HTMLDivElement;
 
   const ppPublicKey = sessionStorage.getItem("selected_pp") || "";
+  if (!ppPublicKey) {
+    navigate("/home");
+    return el;
+  }
   Promise.all([getCouncilMembership(ppPublicKey), getTreasury()])
     .then(([membership, treasury]) => {
       loadingEl.hidden = true;

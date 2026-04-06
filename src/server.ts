@@ -17,10 +17,13 @@ function getCSP(): string {
   const environment = Deno.env.get("ENVIRONMENT") || "development";
   const posthogHost = Deno.env.get("POSTHOG_HOST") || "";
 
+  const stellarNetwork = Deno.env.get("STELLAR_NETWORK") || "testnet";
+  const isMainnet = stellarNetwork === "mainnet";
+
   const connectSrc = [
     "'self'",
-    "https://soroban-testnet.stellar.org",
-    "https://horizon-testnet.stellar.org",
+    isMainnet ? "https://soroban.stellar.org" : "https://soroban-testnet.stellar.org",
+    isMainnet ? "https://horizon.stellar.org" : "https://horizon-testnet.stellar.org",
     "https://us.i.posthog.com",
   ];
 
@@ -29,6 +32,7 @@ function getCSP(): string {
   // In development, allow connections to local services
   if (environment !== "production") {
     connectSrc.push("http://localhost:*");
+    // Required by version-check.ts which fetches latest release info from GitHub in dev mode.
     connectSrc.push("https://api.github.com");
   }
 

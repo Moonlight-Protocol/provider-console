@@ -211,7 +211,7 @@ export interface CouncilMembership {
   councilPublicKey: string;
   channelAuthId: string;
   status: "PENDING" | "ACTIVE" | "REJECTED";
-  config: unknown | null;
+  config: Record<string, unknown> | null;
   joinRequestId: string | null;
   ppPublicKey: string | null;
   createdAt: string;

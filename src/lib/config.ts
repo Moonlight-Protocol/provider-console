@@ -19,6 +19,10 @@ const config = window.__CONSOLE_CONFIG__ ?? {};
 
 export const API_BASE_URL = config.apiBaseUrl ?? "http://localhost:8000/api/v1";
 export const STELLAR_NETWORK = config.stellarNetwork ?? "testnet";
+// NOTE: The standalone fallback uses port 8000 which is the same as API_BASE_URL's
+// default host. This is intentional — in standalone mode, the provider-platform
+// reverse-proxies Horizon requests at the same origin. In production, horizonUrl
+// should always be set explicitly via __CONSOLE_CONFIG__.
 export const HORIZON_URL = config.horizonUrl ?? (
   STELLAR_NETWORK === "mainnet" ? "https://horizon.stellar.org"
     : STELLAR_NETWORK === "standalone" ? "http://localhost:8000"

@@ -1,6 +1,7 @@
 import { route, startRouter, navigate } from "./lib/router.ts";
 import { initAnalytics } from "./lib/analytics.ts";
 import { isAuthenticated } from "./lib/api.ts";
+import { isMasterSeedReady } from "./lib/wallet.ts";
 
 import { loginView } from "./views/login.ts";
 import { homeView } from "./views/home.ts";
@@ -28,7 +29,7 @@ route("/recover", recoverView);
 
 // Root — redirect based on auth state
 route("/", () => {
-  if (isAuthenticated()) {
+  if (isAuthenticated() && isMasterSeedReady()) {
     navigate("/home");
   } else {
     navigate("/login");
