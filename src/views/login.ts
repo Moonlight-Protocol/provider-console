@@ -1,95 +1,108 @@
-import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/stellar-wallets-kit.mjs";
-import { WalletNetwork } from "@creit.tech/stellar-wallets-kit/types.mjs";
-import { FreighterModule, FREIGHTER_ID } from "@creit.tech/stellar-wallets-kit/modules/freighter.module.mjs";
-import "@creit.tech/stellar-wallets-kit/components/modal/stellar-wallets-modal.mjs";
-import { requestStellarChallenge, verifyStellarChallenge, setToken, isAuthenticated } from "../lib/api.ts";
+import { isAuthenticated, authenticate, clearPlatformAuth } from "../lib/api.ts";
+import { isWalletConnected, connectWallet, getConnectedAddress, clearSession, initMasterSeed, isMasterSeedReady } from "../lib/wallet.ts";
 import { identify, capture } from "../lib/analytics.ts";
 import { navigate } from "../lib/router.ts";
-import { ENVIRONMENT } from "../lib/config.ts";
-
-let kit: StellarWalletsKit | null = null;
-
-function getKit(): StellarWalletsKit {
-  if (!kit) {
-    kit = new StellarWalletsKit({
-      network: ENVIRONMENT === "production" ? WalletNetwork.TESTNET : WalletNetwork.STANDALONE,
-      selectedWalletId: FREIGHTER_ID,
-      modules: [new FreighterModule()],
-    });
-  }
-  return kit;
-}
+import { escapeHtml } from "../lib/dom.ts";
 
 export function loginView(): HTMLElement {
-  if (isAuthenticated()) {
-    navigate("/channels");
+  if (isAuthenticated() && isMasterSeedReady()) {
+    navigate("/");
     return document.createElement("div");
   }
 
   const container = document.createElement("div");
   container.className = "login-container";
+
+  const walletConnected = isWalletConnected();
+  const address = getConnectedAddress();
+
   container.innerHTML = `
     <div class="login-card">
       <h1>Provider Console</h1>
-      <p>Connect your Stellar wallet to manage your provider instance.</p>
-      <button id="connect-btn" class="btn-primary btn-wide">Connect Wallet</button>
-      <p id="login-status" class="hint-text" hidden></p>
-      <p id="login-error" class="error-text" hidden></p>
-      <p class="hint-text">Sign in with Freighter to manage your provider instance.</p>
+
+      <div id="step-connect" ${walletConnected ? 'hidden' : ''}>
+        <p>Connect your Stellar wallet to get started.</p>
+        <button id="connect-btn" class="btn-primary btn-wide">Connect Wallet</button>
+      </div>
+
+      <div id="step-signin" ${walletConnected ? '' : 'hidden'}>
+        <p>Connected as:</p>
+        <p class="mono" style="font-size:0.8rem;word-break:break-all;margin-bottom:1rem;color:var(--text-muted)">${escapeHtml(address || "")}</p>
+        <button id="signin-btn" class="btn-primary btn-wide">Sign In</button>
+        <button id="change-wallet-btn" class="btn-link" style="margin-top:0.75rem;display:block;text-align:center;width:100%;color:var(--text-muted)">Use a different wallet</button>
+      </div>
+
+      <p id="login-error" class="error-text" style="text-align:center" hidden></p>
     </div>
   `;
 
-  const btn = container.querySelector("#connect-btn") as HTMLButtonElement;
-  const statusEl = container.querySelector("#login-status") as HTMLParagraphElement;
+  const connectStep = container.querySelector("#step-connect") as HTMLDivElement;
+  const signinStep = container.querySelector("#step-signin") as HTMLDivElement;
   const errorEl = container.querySelector("#login-error") as HTMLParagraphElement;
 
-  btn.addEventListener("click", async () => {
+  // Change wallet: clear session and go back to step 1
+  container.querySelector("#change-wallet-btn")?.addEventListener("click", () => {
+    clearSession();
+    clearPlatformAuth();
+    connectStep.hidden = false;
+    signinStep.hidden = true;
+    errorEl.hidden = true;
+    (container.querySelector("#connect-btn") as HTMLButtonElement).disabled = false;
+  });
+
+  // Step 1: Connect Wallet
+  container.querySelector("#connect-btn")?.addEventListener("click", async () => {
+    const btn = container.querySelector("#connect-btn") as HTMLButtonElement;
     btn.disabled = true;
     errorEl.hidden = true;
 
     try {
-      const walletKit = getKit();
+      const publicKey = await connectWallet();
+      identify(publicKey);
 
-      statusEl.textContent = "Connecting wallet...";
-      statusEl.hidden = false;
-      await walletKit.openModal({
-        onWalletSelected: async (option) => {
-          walletKit.setWallet(option.id);
+      // Show step 2 with the public key
+      connectStep.hidden = true;
+      signinStep.hidden = false;
+      const addrEl = signinStep.querySelector(".mono") as HTMLElement;
+      addrEl.textContent = publicKey;
 
-          try {
-            const { address: publicKey } = await walletKit.getAddress();
-            statusEl.textContent = `Connected: ${publicKey.slice(0, 8)}...${publicKey.slice(-4)}`;
-
-            // 1. Request SEP-10 challenge transaction
-            statusEl.textContent = "Requesting challenge...";
-            const { challenge } = await requestStellarChallenge(publicKey);
-
-            // 2. Sign the challenge transaction with wallet
-            statusEl.textContent = "Please approve the transaction in your wallet...";
-            const { signedTxXdr } = await walletKit.signTransaction(challenge);
-
-            // 3. Submit signed challenge and get JWT
-            statusEl.textContent = "Verifying...";
-            const { jwt } = await verifyStellarChallenge(signedTxXdr);
-
-            setToken(jwt);
-            identify(publicKey);
-            capture("console_login", { publicKey, wallet: option.id });
-            navigate("/channels");
-          } catch (error) {
-            errorEl.textContent = error instanceof Error ? error.message : "Authentication failed";
-            errorEl.hidden = false;
-            statusEl.hidden = true;
-            capture("console_login_failed");
-          } finally {
-            btn.disabled = false;
-          }
-        },
-      });
+      capture("provider_wallet_connected", { publicKey });
     } catch (error) {
-      errorEl.textContent = error instanceof Error ? error.message : "Failed to open wallet";
+      errorEl.textContent = error instanceof Error ? error.message : "Failed to connect wallet";
       errorEl.hidden = false;
-      statusEl.hidden = true;
+      btn.disabled = false;
+    }
+  });
+
+  // Step 2: Sign In (platform auth)
+  container.querySelector("#signin-btn")?.addEventListener("click", async () => {
+    const btn = container.querySelector("#signin-btn") as HTMLButtonElement;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    errorEl.hidden = true;
+
+    try {
+      btn.textContent = "Setting up...";
+      await initMasterSeed();
+      // Freighter rejects consecutive signMessage calls without a delay between them.
+      // initMasterSeed signs once, and authenticate() signs again immediately after.
+      await new Promise(r => setTimeout(r, 1000));
+      btn.textContent = "Authenticating...";
+      await authenticate();
+      capture("provider_login", { publicKey: getConnectedAddress() });
+      navigate("/");
+    } catch (error) {
+      let msg: string;
+      if (error instanceof Error) {
+        msg = error.message;
+      } else if (typeof error === "object" && error !== null && "message" in error) {
+        msg = String((error as { message: unknown }).message);
+      } else {
+        msg = error instanceof Error ? error.message : String(error);
+      }
+      errorEl.textContent = msg;
+      errorEl.hidden = false;
+      btn.textContent = originalText;
       btn.disabled = false;
     }
   });
