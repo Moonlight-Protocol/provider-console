@@ -31,13 +31,54 @@ jobs:
       - name: Build production bundle
         run: deno task build -- --production
 
-      - name: Deploy to Tigris
+      - name: Deploy to Tigris (testnet)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.TIGRIS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.TIGRIS_SECRET_ACCESS_KEY }}
           AWS_REGION: auto
         run: |
           aws s3 sync public/ s3://provider-console/ \
+            --endpoint-url https://fly.storage.tigris.dev \
+            --acl public-read \
+            --delete \
+            --no-progress
+
+  deploy-mainnet:
+    runs-on: ubuntu-latest
+    environment: mainnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Generate mainnet config
+        env:
+          ALLOWLIST: ${{ secrets.MAINNET_ALLOWLIST || '["*"]' }}
+        run: |
+          cat > public/config.js << EOF
+          window.__CONSOLE_CONFIG__ = {
+            apiBaseUrl: "${{ secrets.MAINNET_API_BASE_URL }}",
+            environment: "production",
+            stellarNetwork: "mainnet",
+            horizonUrl: "https://horizon.stellar.org",
+            posthogKey: "${{ secrets.POSTHOG_PROJECT_TOKEN }}",
+            posthogHost: "https://us.i.posthog.com",
+            allowlist: $ALLOWLIST,
+          };
+          EOF
+
+      - name: Build production bundle
+        run: deno task build -- --production
+
+      - name: Deploy to Tigris (mainnet)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.MAINNET_TIGRIS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MAINNET_TIGRIS_SECRET_ACCESS_KEY }}
+          AWS_REGION: auto
+        run: |
+          aws s3 sync public/ s3://mainnet-provider-console/ \
             --endpoint-url https://fly.storage.tigris.dev \
             --acl public-read \
             --delete \
