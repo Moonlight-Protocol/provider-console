@@ -2,7 +2,8 @@
  * Shared setup layout with progress stepper.
  */
 import { isAuthenticated } from "../../lib/api.ts";
-import { isMasterSeedReady } from "../../lib/wallet.ts";
+import { isMasterSeedReady, getConnectedAddress } from "../../lib/wallet.ts";
+import { isAllowed } from "../../lib/config.ts";
 import { navigate } from "../../lib/router.ts";
 import { renderNav } from "../../components/nav.ts";
 import { SETUP_STEPS, type SetupStepId } from "../../lib/setup.ts";
@@ -12,7 +13,8 @@ export function setupPage(
   renderStep: () => HTMLElement | Promise<HTMLElement>,
 ): () => Promise<HTMLElement> {
   return async () => {
-    if (!isAuthenticated() || !isMasterSeedReady()) {
+    const addr = getConnectedAddress();
+    if (!isAuthenticated() || !isMasterSeedReady() || (addr && !isAllowed(addr))) {
       navigate("/login");
       return document.createElement("div");
     }

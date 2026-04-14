@@ -7,7 +7,13 @@ import { isAllowed, API_BASE_URL } from "../lib/config.ts";
 
 export function loginView(): HTMLElement {
   const existingAddr = getConnectedAddress();
-  if (isAuthenticated() && isMasterSeedReady() && (!existingAddr || isAllowed(existingAddr))) {
+  if (isAuthenticated() && isMasterSeedReady()) {
+    if (existingAddr && !isAllowed(existingAddr)) {
+      const container = document.createElement("div");
+      container.className = "login-container";
+      renderInviteOnly(container, existingAddr);
+      return container;
+    }
     navigate("/");
     return document.createElement("div");
   }
@@ -186,6 +192,6 @@ function renderInviteOnly(container: HTMLElement, address: string): void {
     e.preventDefault();
     clearSession();
     clearPlatformAuth();
-    navigate("/login");
+    navigate("/login", { force: true });
   });
 }
