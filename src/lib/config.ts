@@ -11,6 +11,7 @@ declare global {
       posthogKey?: string;
       posthogHost?: string;
       environment?: string;
+      allowlist?: string[];
     };
   }
 }
@@ -32,3 +33,8 @@ export const POSTHOG_KEY = config.posthogKey ?? "";
 export const POSTHOG_HOST = config.posthogHost ?? "https://us.i.posthog.com";
 export const ENVIRONMENT = config.environment ?? "development";
 export const IS_PRODUCTION = ENVIRONMENT === "production";
+
+export function isAllowed(address: string): boolean {
+  const list = config.allowlist ?? [];
+  return list.includes("*") || list.includes(address);
+}

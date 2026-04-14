@@ -21,7 +21,8 @@ jobs:
             apiBaseUrl: "${{ secrets.API_BASE_URL }}",
             environment: "production",
             posthogKey: "${{ secrets.POSTHOG_PROJECT_TOKEN }}",
-            posthogHost: "https://us.i.posthog.com"
+            posthogHost: "https://us.i.posthog.com",
+            allowlist: ${{ secrets.ALLOWLIST }},
           };
           EOF
 
