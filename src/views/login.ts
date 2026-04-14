@@ -6,7 +6,8 @@ import { escapeHtml } from "../lib/dom.ts";
 import { isAllowed, API_BASE_URL } from "../lib/config.ts";
 
 export function loginView(): HTMLElement {
-  if (isAuthenticated() && isMasterSeedReady()) {
+  const existingAddr = getConnectedAddress();
+  if (isAuthenticated() && isMasterSeedReady() && (!existingAddr || isAllowed(existingAddr))) {
     navigate("/");
     return document.createElement("div");
   }
