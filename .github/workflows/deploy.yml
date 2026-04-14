@@ -15,13 +15,16 @@ jobs:
           deno-version: v2.x
 
       - name: Generate production config
+        env:
+          ALLOWLIST: ${{ secrets.ALLOWLIST || '["*"]' }}
         run: |
           cat > public/config.js << EOF
           window.__CONSOLE_CONFIG__ = {
             apiBaseUrl: "${{ secrets.API_BASE_URL }}",
             environment: "production",
             posthogKey: "${{ secrets.POSTHOG_PROJECT_TOKEN }}",
-            posthogHost: "https://us.i.posthog.com"
+            posthogHost: "https://us.i.posthog.com",
+            allowlist: $ALLOWLIST,
           };
           EOF
 

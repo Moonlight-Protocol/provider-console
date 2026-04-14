@@ -3,4 +3,5 @@ window.__CONSOLE_CONFIG__ = {
   apiBaseUrl: "http://localhost:3010/api/v1",
   stellarNetwork: "standalone",
   environment: "development",
+  allowlist: ["*"],
 };

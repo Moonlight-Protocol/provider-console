@@ -1,6 +1,7 @@
 import { renderNav } from "./nav.ts";
 import { isAuthenticated, listPps, checkMembershipStatus, type PpInfo } from "../lib/api.ts";
-import { isMasterSeedReady } from "../lib/wallet.ts";
+import { isMasterSeedReady, getConnectedAddress } from "../lib/wallet.ts";
+import { isAllowed } from "../lib/config.ts";
 import { navigate } from "../lib/router.ts";
 
 const BANNER_ID = "membership-banner";
@@ -61,7 +62,8 @@ function showBanner(wrapper: HTMLElement, message: string) {
  */
 export function page(renderContent: () => HTMLElement | Promise<HTMLElement>): () => Promise<HTMLElement> {
   return async () => {
-    if (!isAuthenticated() || !isMasterSeedReady()) {
+    const addr = getConnectedAddress();
+    if (!isAuthenticated() || !isMasterSeedReady() || (addr && !isAllowed(addr))) {
       navigate("/login");
       return document.createElement("div");
     }
