@@ -61,8 +61,7 @@ jobs:
           window.__CONSOLE_CONFIG__ = {
             apiBaseUrl: "${{ secrets.MAINNET_API_BASE_URL }}",
             environment: "production",
-            stellarNetwork: "mainnet",
-            horizonUrl: "https://horizon.stellar.org",
+            stellarNetwork: "testnet",
             posthogKey: "${{ secrets.POSTHOG_PROJECT_TOKEN }}",
             posthogHost: "https://us.i.posthog.com",
             allowlist: $ALLOWLIST,
