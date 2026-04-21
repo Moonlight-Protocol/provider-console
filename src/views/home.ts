@@ -3,6 +3,7 @@ import { escapeHtml } from "../lib/dom.ts";
 import { navigate } from "../lib/router.ts";
 import { listPps, deletePp, checkMembershipStatus, discoverCouncil, joinCouncil, type PpInfo, type CouncilInfo } from "../lib/api.ts";
 import { capture } from "../lib/analytics.ts";
+import { API_BASE_URL } from "../lib/config.ts";
 
 
 function truncate(key: string): string {
@@ -301,6 +302,7 @@ function openJoinCouncilModal(ppPublicKey: string, ppDerivationIndex: number, on
         jurisdictions: Array.isArray(meta.jurisdictions) && meta.jurisdictions.length > 0
           ? meta.jurisdictions
           : null,
+        callbackEndpoint: new URL(API_BASE_URL).origin,
       };
       const signedEnvelope = await signPayload(joinPayload, derived.secretKey);
 
