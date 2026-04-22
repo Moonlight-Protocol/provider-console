@@ -1,0 +1,13 @@
+name: Invite Gate
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  invite-gate:
+    uses: moonlight-protocol/local-dev/.github/workflows/invite-gate-reusable.yml@main
+    with:
+      provider_console_ref: ${{ github.head_ref }}
+    secrets:
+      E2E_TRIGGER_TOKEN: ${{ secrets.E2E_TRIGGER_TOKEN }}
