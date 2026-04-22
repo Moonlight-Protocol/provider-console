@@ -5,6 +5,7 @@ import { capture } from "../../lib/analytics.ts";
 import { discoverCouncil, joinCouncil, signPayload, type CouncilInfo } from "../../lib/api.ts";
 import { derivePpKeypair } from "../../lib/wallet.ts";
 import { getFormDraft, clearAllDrafts } from "../../lib/setup.ts";
+import { API_BASE_URL } from "../../lib/config.ts";
 
 function renderStep(): HTMLElement {
   const el = document.createElement("div");
@@ -116,6 +117,7 @@ function renderStep(): HTMLElement {
         jurisdictions: Array.isArray(meta?.jurisdictions) && meta.jurisdictions.length > 0
           ? meta.jurisdictions
           : null,
+        callbackEndpoint: new URL(API_BASE_URL).origin,
       };
       const signedEnvelope = await signPayload(joinPayload, derived.secretKey);
 

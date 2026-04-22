@@ -34,6 +34,9 @@ function getCSP(): string {
     connectSrc.push("http://localhost:*");
     // Required by version-check.ts which fetches latest release info from GitHub in dev mode.
     connectSrc.push("https://api.github.com");
+    // Docker Compose: allow connections to service hostnames (e.g. http://provider:3000)
+    const extraHosts = Deno.env.get("CSP_CONNECT_HOSTS");
+    if (extraHosts) extraHosts.split(",").forEach((h) => connectSrc.push(h.trim()));
   }
 
   return [
