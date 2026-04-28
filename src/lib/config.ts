@@ -13,6 +13,7 @@ declare global {
       environment?: string;
       allowlist?: string[];
       otelEndpoint?: string;
+      otelAuth?: string;
     };
   }
 }
@@ -37,6 +38,7 @@ export const POSTHOG_HOST = config.posthogHost ?? "https://us.i.posthog.com";
 export const ENVIRONMENT = config.environment ?? "development";
 export const IS_PRODUCTION = ENVIRONMENT === "production";
 export const OTEL_ENDPOINT = config.otelEndpoint ?? "";
+export const OTEL_AUTH = config.otelAuth ?? "";
 
 export function isAllowed(address: string): boolean {
   const list = config.allowlist ?? [];
