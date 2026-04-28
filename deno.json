@@ -1,6 +1,6 @@
 {
   "name": "@moonlight-protocol/provider-console",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "license": "MIT",
   "tasks": {
     "dev": "deno run --allow-all --allow-env --watch src/server.ts",
