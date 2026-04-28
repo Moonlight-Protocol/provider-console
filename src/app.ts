@@ -3,7 +3,7 @@ import { initAnalytics } from "./lib/analytics.ts";
 import { isAuthenticated } from "./lib/api.ts";
 import { isMasterSeedReady } from "./lib/wallet.ts";
 import { initTracer } from "./lib/tracer.ts";
-import { OTEL_ENDPOINT } from "./lib/config.ts";
+import { OTEL_AUTH, OTEL_ENDPOINT } from "./lib/config.ts";
 
 import { loginView } from "./views/login.ts";
 import { homeView } from "./views/home.ts";
@@ -18,7 +18,7 @@ import { joinView } from "./views/setup/join.ts";
 
 // Initialize analytics (NOOP in dev)
 initAnalytics();
-initTracer({ endpoint: OTEL_ENDPOINT });
+initTracer({ endpoint: OTEL_ENDPOINT, auth: OTEL_AUTH });
 
 // Register routes
 route("/login", loginView);

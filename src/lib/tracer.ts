@@ -21,6 +21,7 @@ const MAX_PENDING = 500;
 
 let enabled = false;
 let endpoint = "";
+let authHeader = "";
 const pendingSpans: SpanData[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -35,10 +36,11 @@ function randomHex(bytes: number): string {
   return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export function initTracer(config: { endpoint: string }): void {
+export function initTracer(config: { endpoint: string; auth?: string }): void {
   if (!config.endpoint) return;
   enabled = true;
   endpoint = config.endpoint;
+  authHeader = config.auth ?? "";
   scheduleFlush();
 }
 
@@ -166,9 +168,13 @@ async function flush(): Promise<void> {
   };
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (authHeader) headers["Authorization"] = authHeader;
     await fetch(`${endpoint}/v1/traces`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body),
     });
   } catch (err) {
