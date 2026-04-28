@@ -1,7 +1,9 @@
-import { route, startRouter, navigate } from "./lib/router.ts";
+import { navigate, route, startRouter } from "./lib/router.ts";
 import { initAnalytics } from "./lib/analytics.ts";
 import { isAuthenticated } from "./lib/api.ts";
 import { isMasterSeedReady } from "./lib/wallet.ts";
+import { initTracer } from "./lib/tracer.ts";
+import { OTEL_ENDPOINT } from "./lib/config.ts";
 
 import { loginView } from "./views/login.ts";
 import { homeView } from "./views/home.ts";
@@ -16,6 +18,7 @@ import { joinView } from "./views/setup/join.ts";
 
 // Initialize analytics (NOOP in dev)
 initAnalytics();
+initTracer({ endpoint: OTEL_ENDPOINT });
 
 // Register routes
 route("/login", loginView);
@@ -41,7 +44,8 @@ route("/", () => {
 route("/404", () => {
   const el = document.createElement("div");
   el.className = "login-container";
-  el.innerHTML = `<div class="login-card"><h1>404</h1><p>Page not found.</p><a href="#/">Back to home</a></div>`;
+  el.innerHTML =
+    `<div class="login-card"><h1>404</h1><p>Page not found.</p><a href="#/">Back to home</a></div>`;
   return el;
 });
 

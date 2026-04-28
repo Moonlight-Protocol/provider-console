@@ -1,17 +1,20 @@
 import { setupPage } from "./layout.ts";
 import { navigate } from "../../lib/router.ts";
 import { COUNTRY_CODES } from "../../lib/jurisdictions.ts";
-import { saveFormDraft, getFormDraft } from "../../lib/setup.ts";
+import { getFormDraft, saveFormDraft } from "../../lib/setup.ts";
 import { escapeHtml } from "../../lib/dom.ts";
 import { listPps } from "../../lib/api.ts";
 import { derivePpKeypair } from "../../lib/wallet.ts";
 import { accountExists } from "../../lib/horizon.ts";
+import { startTrace, withSpan } from "../../lib/tracer.ts";
 
 function renderStep(): HTMLElement {
   const el = document.createElement("div");
 
   const draft = getFormDraft("metadata") as {
-    name?: string; contactEmail?: string; jurisdictions?: string[];
+    name?: string;
+    contactEmail?: string;
+    jurisdictions?: string[];
   } | null;
 
   el.innerHTML = `
@@ -22,12 +25,16 @@ function renderStep(): HTMLElement {
 
     <div class="form-group">
       <label>Provider name *</label>
-      <input type="text" id="pp-name" placeholder="Acme Privacy Inc" value="${escapeHtml(draft?.name ?? '')}" />
+      <input type="text" id="pp-name" placeholder="Acme Privacy Inc" value="${
+    escapeHtml(draft?.name ?? "")
+  }" />
     </div>
 
     <div class="form-group">
       <label>Contact email</label>
-      <input type="email" id="pp-email" placeholder="admin@acme.com" value="${escapeHtml(draft?.contactEmail ?? '')}" />
+      <input type="email" id="pp-email" placeholder="admin@acme.com" value="${
+    escapeHtml(draft?.contactEmail ?? "")
+  }" />
     </div>
 
     <div class="form-group">
@@ -63,7 +70,8 @@ function renderStep(): HTMLElement {
       tag.textContent = `${entry.code} `;
       const x = document.createElement("button");
       x.textContent = "\u00d7";
-      x.style.cssText = "background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0 0 0 0.25rem;font-size:1rem";
+      x.style.cssText =
+        "background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0 0 0 0.25rem;font-size:1rem";
       x.addEventListener("click", () => {
         selectedJurisdictions.delete(code);
         renderTags();
@@ -79,30 +87,41 @@ function renderStep(): HTMLElement {
     const q = filter.toLowerCase();
     if (q.length < 2) {
       const hint = document.createElement("p");
-      hint.style.cssText = "color:var(--text-muted);font-size:0.8rem;padding:0.5rem 0.75rem";
+      hint.style.cssText =
+        "color:var(--text-muted);font-size:0.8rem;padding:0.5rem 0.75rem";
       hint.textContent = "Type at least 2 characters to search...";
       listEl.appendChild(hint);
       return;
     }
     for (const country of COUNTRY_CODES) {
-      if (!country.label.toLowerCase().includes(q) && !country.code.toLowerCase().includes(q)) continue;
+      if (
+        !country.label.toLowerCase().includes(q) &&
+        !country.code.toLowerCase().includes(q)
+      ) continue;
       const selected = selectedJurisdictions.has(country.code);
       const option = document.createElement("div");
       option.className = "jurisdiction-option" + (selected ? " selected" : "");
-      const flag = country.code.toUpperCase().replace(/./g, (c: string) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65));
+      const flag = country.code.toUpperCase().replace(
+        /./g,
+        (c: string) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65),
+      );
       option.textContent = `${flag} ${country.label}`;
       option.addEventListener("click", () => {
         if (selected) selectedJurisdictions.delete(country.code);
         else selectedJurisdictions.add(country.code);
         renderTags();
-        if (!selected) { filterEl.value = ""; renderList(""); }
-        else renderList(filterEl.value);
+        if (!selected) {
+          filterEl.value = "";
+          renderList("");
+        } else renderList(filterEl.value);
       });
       listEl.appendChild(option);
     }
   }
 
-  const dropdownEl = el.querySelector("#jurisdiction-dropdown") as HTMLDivElement;
+  const dropdownEl = el.querySelector(
+    "#jurisdiction-dropdown",
+  ) as HTMLDivElement;
 
   filterEl.addEventListener("input", () => {
     renderList(filterEl.value);
@@ -113,14 +132,18 @@ function renderStep(): HTMLElement {
   });
   // Delay hide so click events on options fire first
   filterEl.addEventListener("blur", () => {
-    setTimeout(() => { dropdownEl.hidden = true; }, 200);
+    setTimeout(() => {
+      dropdownEl.hidden = true;
+    }, 200);
   });
 
   renderTags();
 
   el.querySelector("#next-btn")?.addEventListener("click", async () => {
-    const name = (el.querySelector("#pp-name") as HTMLInputElement).value.trim();
-    const contactEmail = (el.querySelector("#pp-email") as HTMLInputElement).value.trim();
+    const name = (el.querySelector("#pp-name") as HTMLInputElement).value
+      .trim();
+    const contactEmail = (el.querySelector("#pp-email") as HTMLInputElement)
+      .value.trim();
     const jurisdictions = Array.from(selectedJurisdictions);
 
     if (!name) {
@@ -135,23 +158,26 @@ function renderStep(): HTMLElement {
     errorEl.hidden = true;
 
     try {
-      // Scan for the first unused index
-      const existingPps = await listPps();
-      const existingKeys = new Set(existingPps.map((p) => p.publicKey));
-      const MAX_SCAN = 20;
-      let index = -1;
+      const { traceId } = startTrace();
+      const index = await withSpan(
+        "provider.find_pp_slot",
+        traceId,
+        async () => {
+          // Scan for the first unused index
+          const existingPps = await listPps();
+          const existingKeys = new Set(existingPps.map((p) => p.publicKey));
+          const MAX_SCAN = 20;
 
-      for (let i = 0; i < MAX_SCAN; i++) {
-        const kp = await derivePpKeypair(i);
-        if (existingKeys.has(kp.publicKey)) continue;
-        if (await accountExists(kp.publicKey)) continue;
-        index = i;
-        break;
-      }
+          for (let i = 0; i < MAX_SCAN; i++) {
+            const kp = await derivePpKeypair(i);
+            if (existingKeys.has(kp.publicKey)) continue;
+            if (await accountExists(kp.publicKey)) continue;
+            return i;
+          }
 
-      if (index === -1) {
-        throw new Error("Could not find an available provider slot.");
-      }
+          throw new Error("Could not find an available provider slot.");
+        },
+      );
 
       // Save draft and index for the fund step
       saveFormDraft("metadata", { name, contactEmail, jurisdictions });

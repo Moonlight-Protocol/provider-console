@@ -12,6 +12,7 @@ declare global {
       posthogHost?: string;
       environment?: string;
       allowlist?: string[];
+      otelEndpoint?: string;
     };
   }
 }
@@ -25,14 +26,17 @@ export const STELLAR_NETWORK = config.stellarNetwork ?? "testnet";
 // reverse-proxies Horizon requests at the same origin. In production, horizonUrl
 // should always be set explicitly via __CONSOLE_CONFIG__.
 export const HORIZON_URL = config.horizonUrl ?? (
-  STELLAR_NETWORK === "mainnet" ? "https://horizon.stellar.org"
-    : STELLAR_NETWORK === "standalone" ? "http://localhost:8000"
+  STELLAR_NETWORK === "mainnet"
+    ? "https://horizon.stellar.org"
+    : STELLAR_NETWORK === "standalone"
+    ? "http://localhost:8000"
     : "https://horizon-testnet.stellar.org"
 );
 export const POSTHOG_KEY = config.posthogKey ?? "";
 export const POSTHOG_HOST = config.posthogHost ?? "https://us.i.posthog.com";
 export const ENVIRONMENT = config.environment ?? "development";
 export const IS_PRODUCTION = ENVIRONMENT === "production";
+export const OTEL_ENDPOINT = config.otelEndpoint ?? "";
 
 export function isAllowed(address: string): boolean {
   const list = config.allowlist ?? [];
