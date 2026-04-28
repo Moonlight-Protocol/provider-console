@@ -25,6 +25,7 @@ jobs:
             posthogKey: "${{ secrets.POSTHOG_PROJECT_TOKEN }}",
             posthogHost: "https://us.i.posthog.com",
             allowlist: $ALLOWLIST,
+            otelEndpoint: "${{ secrets.OTEL_ENDPOINT }}",
           };
           EOF
 
@@ -65,6 +66,7 @@ jobs:
             posthogKey: "${{ secrets.POSTHOG_PROJECT_TOKEN }}",
             posthogHost: "https://us.i.posthog.com",
             allowlist: $ALLOWLIST,
+            otelEndpoint: "${{ secrets.MAINNET_OTEL_ENDPOINT }}",
           };
           EOF
 
