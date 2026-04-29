@@ -1,6 +1,6 @@
 {
   "name": "@moonlight-protocol/provider-console",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "license": "MIT",
   "tasks": {
     "dev": "deno run --allow-all --allow-env --watch src/server.ts",
@@ -16,12 +16,17 @@
       "dom.iterable"
     ]
   },
+  "nodeModulesDir": "auto",
   "imports": {
     "@std/assert": "jsr:@std/assert@^1.0.0",
     "@std/path": "jsr:@std/path@^1.0.0",
-    "stellar-base": "npm:@stellar/stellar-base@14.1.0",
-    "stellar-sdk": "npm:@stellar/stellar-sdk@14.2.0",
-    "@creit.tech/stellar-wallets-kit": "npm:@creit.tech/stellar-wallets-kit@^1.4.0",
+    "@luca/esbuild-deno-loader": "jsr:@luca/esbuild-deno-loader@^0.11.0",
+    "esbuild": "npm:esbuild@0.25.12",
+    "stellar-base": "npm:@stellar/stellar-base@^15.0.0",
+    "stellar-sdk": "npm:@stellar/stellar-sdk@^15.0.1",
+    "@creit-tech/stellar-wallets-kit/sdk": "npm:@creit.tech/stellar-wallets-kit@^2.1.0/sdk",
+    "@creit-tech/stellar-wallets-kit/types": "npm:@creit.tech/stellar-wallets-kit@^2.1.0/types",
+    "@creit-tech/stellar-wallets-kit/modules/freighter": "npm:@creit.tech/stellar-wallets-kit@^2.1.0/modules/freighter",
     "buffer": "npm:buffer@^6.0.3"
   }
 }
