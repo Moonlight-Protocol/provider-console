@@ -10,7 +10,10 @@ export const SETUP_STEPS = [
 
 export type SetupStepId = typeof SETUP_STEPS[number]["id"];
 
-export function saveFormDraft(step: string, data: Record<string, unknown>): void {
+export function saveFormDraft(
+  step: string,
+  data: Record<string, unknown>,
+): void {
   sessionStorage.setItem(`setup_draft_${step}`, JSON.stringify(data));
 }
 

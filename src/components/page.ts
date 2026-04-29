@@ -1,6 +1,11 @@
 import { renderNav } from "./nav.ts";
-import { isAuthenticated, listPps, checkMembershipStatus, type PpInfo } from "../lib/api.ts";
-import { isMasterSeedReady, getConnectedAddress } from "../lib/wallet.ts";
+import {
+  checkMembershipStatus,
+  isAuthenticated,
+  listPps,
+  type PpInfo,
+} from "../lib/api.ts";
+import { getConnectedAddress, isMasterSeedReady } from "../lib/wallet.ts";
 import { isAllowed } from "../lib/config.ts";
 import { navigate } from "../lib/router.ts";
 
@@ -19,7 +24,9 @@ async function checkMemberships(wrapper: HTMLElement) {
     return;
   }
 
-  const activePps = pps.filter((pp) => pp.councilMembership?.status === "ACTIVE");
+  const activePps = pps.filter((pp) =>
+    pp.councilMembership?.status === "ACTIVE"
+  );
   if (activePps.length === 0) return;
 
   let revoked = false;
@@ -27,7 +34,12 @@ async function checkMemberships(wrapper: HTMLElement) {
     try {
       const result = await checkMembershipStatus(pp.publicKey);
       if (result !== "ACTIVE") {
-        showBanner(wrapper, `Your provider "${pp.label || pp.publicKey}" was removed from ${pp.councilMembership!.councilName || "the council"}.`);
+        showBanner(
+          wrapper,
+          `Your provider "${pp.label || pp.publicKey}" was removed from ${
+            pp.councilMembership!.councilName || "the council"
+          }.`,
+        );
         revoked = true;
         break;
       }
@@ -60,10 +72,14 @@ function showBanner(wrapper: HTMLElement, message: string) {
 /**
  * Wraps a view with the nav bar and auth check.
  */
-export function page(renderContent: () => HTMLElement | Promise<HTMLElement>): () => Promise<HTMLElement> {
+export function page(
+  renderContent: () => HTMLElement | Promise<HTMLElement>,
+): () => Promise<HTMLElement> {
   return async () => {
     const addr = getConnectedAddress();
-    if (!isAuthenticated() || !isMasterSeedReady() || (addr && !isAllowed(addr))) {
+    if (
+      !isAuthenticated() || !isMasterSeedReady() || (addr && !isAllowed(addr))
+    ) {
       navigate("/login");
       return document.createElement("div");
     }

@@ -1,10 +1,17 @@
 import { page } from "../components/page.ts";
 import { escapeHtml } from "../lib/dom.ts";
 import { navigate } from "../lib/router.ts";
-import { listPps, deletePp, checkMembershipStatus, discoverCouncil, joinCouncil, type PpInfo, type CouncilInfo } from "../lib/api.ts";
+import {
+  checkMembershipStatus,
+  type CouncilInfo,
+  deletePp,
+  discoverCouncil,
+  joinCouncil,
+  listPps,
+  type PpInfo,
+} from "../lib/api.ts";
 import { capture } from "../lib/analytics.ts";
 import { API_BASE_URL } from "../lib/config.ts";
-
 
 function truncate(key: string): string {
   return key.length > 12 ? `${key.slice(0, 6)}...${key.slice(-4)}` : key;
@@ -12,7 +19,8 @@ function truncate(key: string): string {
 
 function renderContent(): HTMLElement {
   const el = document.createElement("div");
-  el.innerHTML = `<div id="home-loading" style="color:var(--text-muted);margin:2rem 0">Loading providers...</div><div id="home-content" hidden></div>`;
+  el.innerHTML =
+    `<div id="home-loading" style="color:var(--text-muted);margin:2rem 0">Loading providers...</div><div id="home-content" hidden></div>`;
 
   const loadingEl = el.querySelector("#home-loading") as HTMLDivElement;
   const contentEl = el.querySelector("#home-content") as HTMLDivElement;
@@ -31,11 +39,15 @@ function renderContent(): HTMLElement {
       renderPpList(knownPps);
 
       // Auto-refresh any PENDING memberships in the background
-      const pendingPps = knownPps.filter((pp) => pp.councilMembership?.status === "PENDING");
+      const pendingPps = knownPps.filter((pp) =>
+        pp.councilMembership?.status === "PENDING"
+      );
       for (const pp of pendingPps) {
         checkMembershipStatus(pp.publicKey).then((status) => {
           if (status === "PENDING") return;
-          const badge = contentEl.querySelector(`.check-status-btn[data-pp-key="${CSS.escape(pp.publicKey)}"]`);
+          const badge = contentEl.querySelector(
+            `.check-status-btn[data-pp-key="${CSS.escape(pp.publicKey)}"]`,
+          );
           if (!badge) return;
           if (status === "ACTIVE") {
             (badge as HTMLElement).className = "badge badge-active";
@@ -49,36 +61,61 @@ function renderContent(): HTMLElement {
     } catch (err) {
       loadingEl.hidden = true;
       contentEl.hidden = false;
-      contentEl.innerHTML = `<p class="error-text">${escapeHtml(err instanceof Error ? err.message : String(err))}</p>`;
+      contentEl.innerHTML = `<p class="error-text">${
+        escapeHtml(err instanceof Error ? err.message : String(err))
+      }</p>`;
     }
   }
 
   function renderPpList(pps: PpInfo[]) {
     const rows = pps.map((pp) => {
-      const meta = JSON.parse(localStorage.getItem(`pp_meta_${pp.publicKey}`) || "{}");
-      const statusClass = pp.councilMembership?.status === "ACTIVE" ? "active" : pp.councilMembership?.status === "PENDING" ? "pending" : "inactive";
+      const meta = JSON.parse(
+        localStorage.getItem(`pp_meta_${pp.publicKey}`) || "{}",
+      );
+      const statusClass = pp.councilMembership?.status === "ACTIVE"
+        ? "active"
+        : pp.councilMembership?.status === "PENDING"
+        ? "pending"
+        : "inactive";
       const jurisdictions = Array.isArray(meta.jurisdictions)
         ? meta.jurisdictions.map((code: string) =>
-            code.toUpperCase().replace(/./g, (c: string) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65))
-          ).join(" ")
+          code.toUpperCase().replace(
+            /./g,
+            (c: string) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65),
+          )
+        ).join(" ")
         : "";
       const councilCell = pp.councilMembership?.councilName
         ? escapeHtml(pp.councilMembership.councilName)
         : '<span style="color:var(--text-muted)">-</span>';
       const statusCell = pp.councilMembership
         ? pp.councilMembership.status === "PENDING"
-          ? `<span class="badge badge-pending check-status-btn" data-pp-key="${escapeHtml(pp.publicKey)}" title="Check for updates" style="cursor:pointer">${escapeHtml(pp.councilMembership.status)}</span>`
-          : `<span class="badge badge-${statusClass}">${escapeHtml(pp.councilMembership.status)}</span>`
-        : `<span class="badge join-council-btn" data-pp-key="${escapeHtml(pp.publicKey)}" style="cursor:pointer;background:rgba(99,102,241,0.15);color:var(--primary)">JOIN</span>`;
+          ? `<span class="badge badge-pending check-status-btn" data-pp-key="${
+            escapeHtml(pp.publicKey)
+          }" title="Check for updates" style="cursor:pointer">${
+            escapeHtml(pp.councilMembership.status)
+          }</span>`
+          : `<span class="badge badge-${statusClass}">${
+            escapeHtml(pp.councilMembership.status)
+          }</span>`
+        : `<span class="badge join-council-btn" data-pp-key="${
+          escapeHtml(pp.publicKey)
+        }" style="cursor:pointer;background:rgba(99,102,241,0.15);color:var(--primary)">JOIN</span>`;
       return `
         <tr data-pp="${escapeHtml(pp.publicKey)}" style="cursor:pointer">
-          <td${meta.contactEmail ? ` title="${escapeHtml(meta.contactEmail)}"` : ""}>${escapeHtml(pp.label || truncate(pp.publicKey))}</td>
+          <td${
+        meta.contactEmail ? ` title="${escapeHtml(meta.contactEmail)}"` : ""
+      }>${escapeHtml(pp.label || truncate(pp.publicKey))}</td>
           <td>${jurisdictions}</td>
           <td>${councilCell}</td>
           <td>${statusCell}</td>
           <td style="text-align:right;white-space:nowrap">
-            <button class="icon-btn copy-addr-btn" data-addr="${escapeHtml(pp.publicKey)}" title="Copy address"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-            <button class="icon-btn delete-pp-btn" data-pp-key="${escapeHtml(pp.publicKey)}" title="Delete provider"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+            <button class="icon-btn copy-addr-btn" data-addr="${
+        escapeHtml(pp.publicKey)
+      }" title="Copy address"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+            <button class="icon-btn delete-pp-btn" data-pp-key="${
+        escapeHtml(pp.publicKey)
+      }" title="Delete provider"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
           </td>
         </tr>
       `;
@@ -92,13 +129,14 @@ function renderContent(): HTMLElement {
           <button id="create-pp-btn" class="icon-btn" title="New Provider"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
         </div>
       </div>
-      ${pps.length === 0
+      ${
+      pps.length === 0
         ? `<div class="empty-state"><p>No providers yet. Create one to get started.</p></div>`
         : `<table>
             <thead><tr><th>Name</th><th>Jurisdictions</th><th>Council</th><th>Status</th><th></th></tr></thead>
             <tbody>${rows}</tbody>
           </table>`
-      }
+    }
     `;
 
     // Wire recover button
@@ -119,7 +157,9 @@ function renderContent(): HTMLElement {
         navigator.clipboard.writeText(addr).then(() => {
           const orig = btn.innerHTML;
           btn.textContent = "\u2713";
-          setTimeout(() => { btn.innerHTML = orig; }, 1500);
+          setTimeout(() => {
+            btn.innerHTML = orig;
+          }, 1500);
         });
       });
     });
@@ -187,10 +227,16 @@ function renderContent(): HTMLElement {
   return el;
 }
 
-function openJoinCouncilModal(ppPublicKey: string, ppDerivationIndex: number, onJoined: () => Promise<void>) {
+function openJoinCouncilModal(
+  ppPublicKey: string,
+  ppDerivationIndex: number,
+  onJoined: () => Promise<void>,
+) {
   document.querySelector("#join-council-modal")?.remove();
 
-  const meta = JSON.parse(localStorage.getItem(`pp_meta_${ppPublicKey}`) || "{}");
+  const meta = JSON.parse(
+    localStorage.getItem(`pp_meta_${ppPublicKey}`) || "{}",
+  );
 
   const overlay = document.createElement("div");
   overlay.id = "join-council-modal";
@@ -221,24 +267,39 @@ function openJoinCouncilModal(ppPublicKey: string, ppDerivationIndex: number, on
 
   const closeBtn = overlay.querySelector("#jc-close-btn") as HTMLButtonElement;
   const urlInput = overlay.querySelector("#jc-url") as HTMLInputElement;
-  const discoverBtn = overlay.querySelector("#jc-discover-btn") as HTMLButtonElement;
+  const discoverBtn = overlay.querySelector(
+    "#jc-discover-btn",
+  ) as HTMLButtonElement;
   const errorEl = overlay.querySelector("#jc-error") as HTMLParagraphElement;
   const infoEl = overlay.querySelector("#jc-info") as HTMLDivElement;
   const confirmEl = overlay.querySelector("#jc-confirm") as HTMLDivElement;
   let discovered: CouncilInfo | null = null;
 
-  function close() { overlay.remove(); document.removeEventListener("keydown", onEsc); }
-  function onEsc(e: KeyboardEvent) { if (e.key === "Escape") close(); }
+  function close() {
+    overlay.remove();
+    document.removeEventListener("keydown", onEsc);
+  }
+  function onEsc(e: KeyboardEvent) {
+    if (e.key === "Escape") close();
+  }
   document.addEventListener("keydown", onEsc);
   closeBtn.addEventListener("click", close);
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
   urlInput.focus();
 
-  urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") discoverBtn.click(); });
+  urlInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") discoverBtn.click();
+  });
 
   discoverBtn.addEventListener("click", async () => {
     const url = urlInput.value.trim();
-    if (!url) { errorEl.textContent = "Please enter a council URL"; errorEl.hidden = false; return; }
+    if (!url) {
+      errorEl.textContent = "Please enter a council URL";
+      errorEl.hidden = false;
+      return;
+    }
 
     discoverBtn.disabled = true;
     discoverBtn.textContent = "Discovering...";
@@ -250,21 +311,42 @@ function openJoinCouncilModal(ppPublicKey: string, ppDerivationIndex: number, on
       discovered = await discoverCouncil(url);
 
       const flags = discovered.jurisdictions.map((j) => {
-        const flag = j.countryCode.toUpperCase().replace(/./g, (c) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65));
-        return `<span title="${escapeHtml(j.label || j.countryCode)}" style="font-size:1.2rem">${flag}</span>`;
+        const flag = j.countryCode.toUpperCase().replace(
+          /./g,
+          (c) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65),
+        );
+        return `<span title="${
+          escapeHtml(j.label || j.countryCode)
+        }" style="font-size:1.2rem">${flag}</span>`;
       }).join(" ");
-      const uniqueAssets = [...new Set(discovered.channels.map((ch) => ch.assetCode))];
+      const uniqueAssets = [
+        ...new Set(discovered.channels.map((ch) => ch.assetCode)),
+      ];
       const assets = uniqueAssets.map((code) =>
-        `<span class="badge badge-active" style="margin-right:0.25rem">${escapeHtml(code)}</span>`
+        `<span class="badge badge-active" style="margin-right:0.25rem">${
+          escapeHtml(code)
+        }</span>`
       ).join("");
 
       infoEl.innerHTML = `
         <div class="stat-card" style="margin:1rem 0;padding:1rem">
-          <h3 style="margin:0 0 0.5rem;color:var(--text);font-size:1rem;text-transform:none;letter-spacing:0">${escapeHtml(discovered.council.name)}</h3>
-          ${discovered.council.description ? `<p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem">${escapeHtml(discovered.council.description)}</p>` : ""}
+          <h3 style="margin:0 0 0.5rem;color:var(--text);font-size:1rem;text-transform:none;letter-spacing:0">${
+        escapeHtml(discovered.council.name)
+      }</h3>
+          ${
+        discovered.council.description
+          ? `<p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem">${
+            escapeHtml(discovered.council.description)
+          }</p>`
+          : ""
+      }
           <div style="display:flex;gap:1.5rem;flex-wrap:wrap;font-size:0.85rem">
-            <div><span class="stat-label">Jurisdictions</span><div style="margin-top:0.25rem">${flags || "--"}</div></div>
-            <div><span class="stat-label">Assets</span><div style="margin-top:0.25rem">${assets || "--"}</div></div>
+            <div><span class="stat-label">Jurisdictions</span><div style="margin-top:0.25rem">${
+        flags || "--"
+      }</div></div>
+            <div><span class="stat-label">Assets</span><div style="margin-top:0.25rem">${
+        assets || "--"
+      }</div></div>
             <div><span class="stat-label">Providers</span><div style="margin-top:0.25rem">${discovered.providers.length}</div></div>
           </div>
         </div>
@@ -272,7 +354,9 @@ function openJoinCouncilModal(ppPublicKey: string, ppDerivationIndex: number, on
       infoEl.hidden = false;
       confirmEl.hidden = false;
     } catch (err) {
-      errorEl.textContent = err instanceof Error ? err.message : "Discovery failed";
+      errorEl.textContent = err instanceof Error
+        ? err.message
+        : "Discovery failed";
       errorEl.hidden = false;
     } finally {
       discoverBtn.disabled = false;
@@ -281,7 +365,9 @@ function openJoinCouncilModal(ppPublicKey: string, ppDerivationIndex: number, on
   });
 
   const joinBtn = overlay.querySelector("#jc-join-btn") as HTMLButtonElement;
-  const joinError = overlay.querySelector("#jc-join-error") as HTMLParagraphElement;
+  const joinError = overlay.querySelector(
+    "#jc-join-error",
+  ) as HTMLParagraphElement;
 
   joinBtn.addEventListener("click", async () => {
     joinBtn.disabled = true;
@@ -298,10 +384,13 @@ function openJoinCouncilModal(ppPublicKey: string, ppDerivationIndex: number, on
         publicKey: ppPublicKey,
         councilId: discovered!.council.channelAuthId,
         label: typeof meta.label === "string" ? meta.label : null,
-        contactEmail: typeof meta.contactEmail === "string" ? meta.contactEmail : null,
-        jurisdictions: Array.isArray(meta.jurisdictions) && meta.jurisdictions.length > 0
-          ? meta.jurisdictions
+        contactEmail: typeof meta.contactEmail === "string"
+          ? meta.contactEmail
           : null,
+        jurisdictions:
+          Array.isArray(meta.jurisdictions) && meta.jurisdictions.length > 0
+            ? meta.jurisdictions
+            : null,
         callbackEndpoint: new URL(API_BASE_URL).origin,
       };
       const signedEnvelope = await signPayload(joinPayload, derived.secretKey);
@@ -315,11 +404,15 @@ function openJoinCouncilModal(ppPublicKey: string, ppDerivationIndex: number, on
         signedEnvelope,
       });
 
-      capture("provider_join_request_submitted", { councilUrl: discovered!.councilUrl });
+      capture("provider_join_request_submitted", {
+        councilUrl: discovered!.councilUrl,
+      });
       close();
       await onJoined();
     } catch (err) {
-      joinError.textContent = err instanceof Error ? err.message : "Failed to submit";
+      joinError.textContent = err instanceof Error
+        ? err.message
+        : "Failed to submit";
       joinError.hidden = false;
       joinBtn.disabled = false;
       joinBtn.textContent = "Request to Join";

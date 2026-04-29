@@ -2,7 +2,9 @@
  * Bundles src/app.ts into public/app.js for the browser.
  * Uses esbuild via Deno with the denoPlugins for import map resolution.
  */
+// deno-lint-ignore no-import-prefix -- build script intentionally pins the URL
 import * as esbuild from "https://deno.land/x/esbuild@v0.20.1/mod.js";
+// deno-lint-ignore no-import-prefix -- build script intentionally pins the version
 import { denoPlugins } from "jsr:@luca/esbuild-deno-loader@0.10";
 
 const isProduction = Deno.args.includes("--production");
@@ -44,7 +46,7 @@ if (appJs === before) {
   esbuild.stop();
   throw new Error(
     "Build failed: could not patch __require for buffer polyfill. " +
-    "esbuild's CJS shim format may have changed.",
+      "esbuild's CJS shim format may have changed.",
   );
 }
 

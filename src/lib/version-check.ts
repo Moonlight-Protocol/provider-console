@@ -15,7 +15,9 @@ interface VersionEntry {
 
 async function fetchLatestRelease(repo: string): Promise<string | null> {
   try {
-    const res = await fetch(`https://api.github.com/repos/Moonlight-Protocol/${repo}/releases/latest`);
+    const res = await fetch(
+      `https://api.github.com/repos/Moonlight-Protocol/${repo}/releases/latest`,
+    );
     if (!res.ok) return null;
     const data = await res.json();
     return (data.tag_name ?? "").replace(/^v/, "");
@@ -24,7 +26,9 @@ async function fetchLatestRelease(repo: string): Promise<string | null> {
   }
 }
 
-async function fetchBackendHealth(): Promise<{ version: string; deps: Record<string, string> } | null> {
+async function fetchBackendHealth(): Promise<
+  { version: string; deps: Record<string, string> } | null
+> {
   try {
     const url = new URL(API_BASE_URL);
     url.pathname = "/api/v1/health";
@@ -37,7 +41,8 @@ async function fetchBackendHealth(): Promise<{ version: string; deps: Record<str
 }
 
 function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function renderBanner(entries: VersionEntry[]): HTMLElement {
@@ -60,7 +65,9 @@ function renderBanner(entries: VersionEntry[]): HTMLElement {
     return `<span style="color:${color}">${text}</span>`;
   });
 
-  banner.innerHTML = spans.join(' <span style="color:var(--text-muted)">&middot;</span> ');
+  banner.innerHTML = spans.join(
+    ' <span style="color:var(--text-muted)">&middot;</span> ',
+  );
   return banner;
 }
 
@@ -69,17 +76,29 @@ export async function checkVersions(): Promise<HTMLElement | null> {
     const entries: VersionEntry[] = [];
 
     const appLatest = await fetchLatestRelease("provider-console");
-    entries.push({ name: "provider-console", local: __APP_VERSION__, latest: appLatest });
+    entries.push({
+      name: "provider-console",
+      local: __APP_VERSION__,
+      latest: appLatest,
+    });
 
     const health = await fetchBackendHealth();
     if (health) {
       const ppLatest = await fetchLatestRelease("provider-platform");
-      entries.push({ name: "provider-platform", local: health.version, latest: ppLatest });
+      entries.push({
+        name: "provider-platform",
+        local: health.version,
+        latest: ppLatest,
+      });
 
       const sdkVersion = health.deps?.["moonlight-sdk"];
       if (sdkVersion) {
         const sdkLatest = await fetchLatestRelease("moonlight-sdk");
-        entries.push({ name: "moonlight-sdk", local: sdkVersion, latest: sdkLatest });
+        entries.push({
+          name: "moonlight-sdk",
+          local: sdkVersion,
+          latest: sdkLatest,
+        });
       }
     }
 

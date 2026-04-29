@@ -1,4 +1,4 @@
-import { IS_PRODUCTION, POSTHOG_KEY, POSTHOG_HOST } from "./config.ts";
+import { IS_PRODUCTION, POSTHOG_HOST, POSTHOG_KEY } from "./config.ts";
 
 /**
  * PostHog analytics wrapper.
@@ -42,7 +42,8 @@ export function initAnalytics(): void {
 
       analytics = {
         capture: (event, properties) => posthog.capture(event, properties),
-        identify: (distinctId, properties) => posthog.identify(distinctId, properties),
+        identify: (distinctId, properties) =>
+          posthog.identify(distinctId, properties),
         reset: () => posthog.reset(),
       };
     }
@@ -50,11 +51,17 @@ export function initAnalytics(): void {
   document.head.appendChild(script);
 }
 
-export function capture(event: string, properties?: Record<string, unknown>): void {
+export function capture(
+  event: string,
+  properties?: Record<string, unknown>,
+): void {
   analytics.capture(event, properties);
 }
 
-export function identify(distinctId: string, properties?: Record<string, unknown>): void {
+export function identify(
+  distinctId: string,
+  properties?: Record<string, unknown>,
+): void {
   analytics.identify(distinctId, properties);
 }
 
