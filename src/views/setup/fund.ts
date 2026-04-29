@@ -1,14 +1,26 @@
 import { setupPage } from "./layout.ts";
 import { navigate } from "../../lib/router.ts";
-import { derivePpKeypair, getConnectedAddress, signTransaction } from "../../lib/wallet.ts";
+import {
+  derivePpKeypair,
+  getConnectedAddress,
+  signTransaction,
+} from "../../lib/wallet.ts";
 import { registerPp } from "../../lib/api.ts";
-import { getAccountBalance, buildFundTx, submitHorizonTx } from "../../lib/stellar.ts";
+import {
+  buildFundTx,
+  getAccountBalance,
+  submitHorizonTx,
+} from "../../lib/stellar.ts";
 import { getFormDraft } from "../../lib/setup.ts";
 
 function renderStep(): HTMLElement {
   const el = document.createElement("div");
   const ppIndex = Number(sessionStorage.getItem("setup_pp_index") ?? "-1");
-  const meta = getFormDraft("metadata") as { name?: string; contactEmail?: string; jurisdictions?: string[] } | null;
+  const meta = getFormDraft("metadata") as {
+    name?: string;
+    contactEmail?: string;
+    jurisdictions?: string[];
+  } | null;
 
   if (ppIndex < 0 || !meta?.name) {
     navigate("/setup/metadata");
@@ -98,13 +110,19 @@ function renderStep(): HTMLElement {
     navigator.clipboard.writeText(ppPublicKey).then(() => {
       const btn = el.querySelector("#copy-btn") as HTMLButtonElement;
       const orig = btn.innerHTML;
-      btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--active)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
-      setTimeout(() => { btn.innerHTML = orig; }, 1500);
+      btn.innerHTML =
+        `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--active)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+      setTimeout(() => {
+        btn.innerHTML = orig;
+      }, 1500);
     });
   });
 
   // Refresh balance
-  el.querySelector("#refresh-btn")?.addEventListener("click", () => checkBalance());
+  el.querySelector("#refresh-btn")?.addEventListener(
+    "click",
+    () => checkBalance(),
+  );
 
   // Fund via wallet payment
   fundBtn.addEventListener("click", async () => {
@@ -154,14 +172,20 @@ function renderStep(): HTMLElement {
       await registerPp(ppSecretKey, ppIndex, meta.name);
 
       // Store metadata locally
-      const localMeta: Record<string, string | string[]> = { label: meta.name! };
+      const localMeta: Record<string, string | string[]> = {
+        label: meta.name!,
+      };
       if (meta.contactEmail) localMeta.contactEmail = meta.contactEmail;
-      if (meta.jurisdictions && meta.jurisdictions.length > 0) localMeta.jurisdictions = meta.jurisdictions;
+      if (meta.jurisdictions && meta.jurisdictions.length > 0) {
+        localMeta.jurisdictions = meta.jurisdictions;
+      }
       localStorage.setItem(`pp_meta_${ppPublicKey}`, JSON.stringify(localMeta));
 
       navigate("/setup/join");
     } catch (err) {
-      errorEl.textContent = err instanceof Error ? err.message : "Failed to register";
+      errorEl.textContent = err instanceof Error
+        ? err.message
+        : "Failed to register";
       errorEl.hidden = false;
       nextBtn.disabled = false;
       nextBtn.textContent = "Next";

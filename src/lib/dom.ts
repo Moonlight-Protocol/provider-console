@@ -6,7 +6,11 @@
  * Renders an error state into a container element.
  * Uses textContent (not innerHTML) to prevent XSS from error messages.
  */
-export function renderError(container: HTMLElement, title: string, message: string): void {
+export function renderError(
+  container: HTMLElement,
+  title: string,
+  message: string,
+): void {
   container.textContent = "";
   const h2 = document.createElement("h2");
   h2.textContent = title;

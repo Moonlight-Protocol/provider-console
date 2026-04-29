@@ -2,7 +2,7 @@
  * Simple static file server for the provider console.
  * Serves files from public/ directory with security headers and path sanitization.
  */
-import { resolve, normalize } from "jsr:@std/path";
+import { normalize, resolve } from "@std/path";
 
 const PORT = Number(Deno.env.get("PORT") || "3000");
 const PUBLIC_ROOT = resolve(Deno.cwd(), "public");
@@ -22,8 +22,12 @@ function getCSP(): string {
 
   const connectSrc = [
     "'self'",
-    isMainnet ? "https://soroban.stellar.org" : "https://soroban-testnet.stellar.org",
-    isMainnet ? "https://horizon.stellar.org" : "https://horizon-testnet.stellar.org",
+    isMainnet
+      ? "https://soroban.stellar.org"
+      : "https://soroban-testnet.stellar.org",
+    isMainnet
+      ? "https://horizon.stellar.org"
+      : "https://horizon-testnet.stellar.org",
     "https://us.i.posthog.com",
   ];
 
@@ -36,7 +40,9 @@ function getCSP(): string {
     connectSrc.push("https://api.github.com");
     // Docker Compose: allow connections to service hostnames (e.g. http://provider:3000)
     const extraHosts = Deno.env.get("CSP_CONNECT_HOSTS");
-    if (extraHosts) extraHosts.split(",").forEach((h) => connectSrc.push(h.trim()));
+    if (extraHosts) {
+      extraHosts.split(",").forEach((h) => connectSrc.push(h.trim()));
+    }
   }
 
   return [
@@ -105,12 +111,14 @@ Deno.serve({ port: PORT }, async (req) => {
     const cacheControl = ext === "html"
       ? "no-cache, no-store, must-revalidate"
       : "public, max-age=3600";
-    return addSecurityHeaders(new Response(file, {
-      headers: {
-        "Content-Type": contentTypes[ext] || "application/octet-stream",
-        "Cache-Control": cacheControl,
-      },
-    }));
+    return addSecurityHeaders(
+      new Response(file, {
+        headers: {
+          "Content-Type": contentTypes[ext] || "application/octet-stream",
+          "Cache-Control": cacheControl,
+        },
+      }),
+    );
   } catch {
     // SPA fallback — only for paths that look like app routes (no file extension)
     const ext = pathname.split("/").pop()?.includes(".") ?? false;
@@ -119,9 +127,11 @@ Deno.serve({ port: PORT }, async (req) => {
     }
     try {
       const index = await Deno.readFile(resolve(PUBLIC_ROOT, "index.html"));
-      return addSecurityHeaders(new Response(index, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      }));
+      return addSecurityHeaders(
+        new Response(index, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        }),
+      );
     } catch {
       return addSecurityHeaders(new Response("Not Found", { status: 404 }));
     }

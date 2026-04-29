@@ -18,7 +18,7 @@ declare global {
   }
 }
 
-const config = window.__CONSOLE_CONFIG__ ?? {};
+const config = globalThis.__CONSOLE_CONFIG__ ?? {};
 
 export const API_BASE_URL = config.apiBaseUrl ?? "http://localhost:8000/api/v1";
 export const STELLAR_NETWORK = config.stellarNetwork ?? "testnet";

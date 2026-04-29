@@ -15,11 +15,11 @@ export function route(path: string, handler: RouteHandler): void {
 }
 
 export function navigate(path: string): void {
-  window.location.hash = path;
+  globalThis.location.hash = path;
 }
 
 async function render(): Promise<void> {
-  const hash = window.location.hash || "#/";
+  const hash = globalThis.location.hash || "#/";
   const path = hash.startsWith("#") ? hash.slice(1) : hash;
 
   const handler = routes.get(path) || routes.get("/404");
@@ -39,11 +39,11 @@ async function render(): Promise<void> {
   app.appendChild(element);
 
   // Reset scroll on navigation
-  window.scrollTo(0, 0);
+  globalThis.scrollTo(0, 0);
 }
 
 export function startRouter(): void {
-  window.addEventListener("hashchange", render);
+  globalThis.addEventListener("hashchange", render);
   render();
 }
 

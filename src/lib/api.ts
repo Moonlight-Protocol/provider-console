@@ -92,7 +92,7 @@ async function platformFetch(
   const res = await doFetch();
   if (res.status === 401) {
     clearPlatformAuth();
-    window.location.hash = "#/login";
+    globalThis.location.hash = "#/login";
     throw new Error("Session expired");
   }
   return res;

@@ -6,13 +6,18 @@ import { HORIZON_URL, STELLAR_NETWORK } from "./config.ts";
 
 function getNetworkPassphrase(): string {
   switch (STELLAR_NETWORK) {
-    case "mainnet": return "Public Global Stellar Network ; September 2015";
-    case "standalone": return "Standalone Network ; February 2017";
-    default: return "Test SDF Network ; September 2015";
+    case "mainnet":
+      return "Public Global Stellar Network ; September 2015";
+    case "standalone":
+      return "Standalone Network ; February 2017";
+    default:
+      return "Test SDF Network ; September 2015";
   }
 }
 
-export async function getAccountBalance(publicKey: string): Promise<{ xlm: string; funded: boolean }> {
+export async function getAccountBalance(
+  publicKey: string,
+): Promise<{ xlm: string; funded: boolean }> {
   try {
     const res = await fetch(`${HORIZON_URL}/accounts/${publicKey}`);
     if (res.status === 404) return { xlm: "0", funded: false };
@@ -42,14 +47,14 @@ export async function buildFundTx(
 
   const op = funded
     ? Operation.payment({
-        destination: destinationPublicKey,
-        asset: Asset.native(),
-        amount: amountXlm,
-      })
+      destination: destinationPublicKey,
+      asset: Asset.native(),
+      amount: amountXlm,
+    })
     : Operation.createAccount({
-        destination: destinationPublicKey,
-        startingBalance: amountXlm,
-      });
+      destination: destinationPublicKey,
+      startingBalance: amountXlm,
+    });
 
   const tx = new TransactionBuilder(account, {
     fee: "100000",
@@ -70,6 +75,9 @@ export async function submitHorizonTx(signedXdr: string): Promise<void> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.extras?.result_codes?.operations?.[0] || err.title || `Transaction failed: ${res.status}`);
+    throw new Error(
+      err.extras?.result_codes?.operations?.[0] || err.title ||
+        `Transaction failed: ${res.status}`,
+    );
   }
 }

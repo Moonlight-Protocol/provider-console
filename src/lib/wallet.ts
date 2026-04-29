@@ -4,7 +4,10 @@
  */
 import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/stellar-wallets-kit.mjs";
 import { WalletNetwork } from "@creit.tech/stellar-wallets-kit/types.mjs";
-import { FreighterModule, FREIGHTER_ID } from "@creit.tech/stellar-wallets-kit/modules/freighter.module.mjs";
+import {
+  FREIGHTER_ID,
+  FreighterModule,
+} from "@creit.tech/stellar-wallets-kit/modules/freighter.module.mjs";
 import "@creit.tech/stellar-wallets-kit/components/modal/stellar-wallets-modal.mjs";
 import { STELLAR_NETWORK } from "./config.ts";
 
@@ -15,9 +18,12 @@ let connectedAddress: string | null = null;
 
 function getWalletNetwork(): WalletNetwork {
   switch (STELLAR_NETWORK) {
-    case "mainnet": return WalletNetwork.PUBLIC;
-    case "standalone": return WalletNetwork.STANDALONE;
-    default: return WalletNetwork.TESTNET;
+    case "mainnet":
+      return WalletNetwork.PUBLIC;
+    case "standalone":
+      return WalletNetwork.STANDALONE;
+    default:
+      return WalletNetwork.TESTNET;
   }
 }
 
@@ -77,7 +83,9 @@ export async function initMasterSeed(): Promise<void> {
 }
 
 export function getMasterSeed(): Uint8Array {
-  if (!masterSeed) throw new Error("Master seed not initialized. Sign in first.");
+  if (!masterSeed) {
+    throw new Error("Master seed not initialized. Sign in first.");
+  }
   return masterSeed;
 }
 
@@ -94,9 +102,12 @@ export function clearSession(): void {
 
 export function getNetworkPassphrase(): string {
   switch (STELLAR_NETWORK) {
-    case "mainnet": return "Public Global Stellar Network ; September 2015";
-    case "standalone": return "Standalone Network ; February 2017";
-    default: return "Test SDF Network ; September 2015";
+    case "mainnet":
+      return "Public Global Stellar Network ; September 2015";
+    case "standalone":
+      return "Standalone Network ; February 2017";
+    default:
+      return "Test SDF Network ; September 2015";
   }
 }
 
@@ -164,10 +175,16 @@ export async function signMessage(message: string): Promise<string> {
  * SHA-256(masterSeed + "pp" + index) → Ed25519 seed.
  * No wallet interaction — pure math.
  */
-export async function derivePpKeypair(index: number): Promise<{ publicKey: string; secretKey: string }> {
+export async function derivePpKeypair(
+  index: number,
+): Promise<{ publicKey: string; secretKey: string }> {
   const seed = getMasterSeed();
   const encoder = new TextEncoder();
-  const input = new Uint8Array([...seed, ...encoder.encode("pp"), ...encoder.encode(String(index))]);
+  const input = new Uint8Array([
+    ...seed,
+    ...encoder.encode("pp"),
+    ...encoder.encode(String(index)),
+  ]);
   const derived = new Uint8Array(await crypto.subtle.digest("SHA-256", input));
 
   const { Keypair } = await import("stellar-base");
