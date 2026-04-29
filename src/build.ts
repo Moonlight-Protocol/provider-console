@@ -50,11 +50,26 @@ if (appJs === before) {
   );
 }
 
-// Remove bare ESM buffer imports (handles both minified and non-minified output)
+// Remove ESM buffer imports — both bare ("buffer") and node-prefixed ("node:buffer").
+// The shim at src/shims/buffer.ts is injected as a global, so any surviving
+// import would attempt a network fetch and trip the browser CSP.
 appJs = appJs.replace(
-  /import\s*\{[^}]*\}\s*from\s*"buffer"\s*;?/g,
+  /import\s*\{[^}]*\}\s*from\s*"(?:node:)?buffer"\s*;?/g,
   "",
 );
+
+// Defense in depth: any surviving `node:` specifier will be blocked by the
+// browser CSP at runtime. Fail the build instead.
+const surviving = appJs.match(/from\s*"node:[^"]+"/g);
+if (surviving) {
+  esbuild.stop();
+  throw new Error(
+    `Build failed: bundle contains node: specifiers that the browser cannot resolve:\n` +
+      `  ${surviving.join("\n  ")}\n` +
+      `Either extend the strip regex above, or remove the source-level import.`,
+  );
+}
+
 await Deno.writeTextFile("public/app.js", appJs);
 
 esbuild.stop();
