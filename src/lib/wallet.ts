@@ -70,7 +70,7 @@ let masterSeed: Uint8Array | null = null;
  * Must be called once per session before any key derivation.
  */
 export async function initMasterSeed(): Promise<void> {
-  const signature = await signMessage("Moonlight: authorize master key");
+  const signature = await signMessage("Moonlight: Derive server key");
   if (!signature || signature.length < 10) {
     throw new Error("Invalid signature: too short or empty");
   }
