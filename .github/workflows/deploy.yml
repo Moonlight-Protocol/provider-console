@@ -7,6 +7,12 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      API_BASE_URL: "${{ secrets.API_BASE_URL }}"
+      POSTHOG_KEY: "${{ secrets.POSTHOG_PROJECT_TOKEN }}"
+      OTEL_ENDPOINT: "${{ secrets.OTEL_ENDPOINT }}"
+      OTEL_AUTH: "${{ secrets.OTEL_AUTH }}"
+      ALLOWLIST: '${{ secrets.ALLOWLIST || ''["*"]'' }}'
     steps:
       - uses: actions/checkout@v4
 
@@ -14,19 +20,42 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Validate testnet config inputs
+        run: |
+          set -euo pipefail
+          for var in API_BASE_URL OTEL_ENDPOINT OTEL_AUTH ALLOWLIST; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Required env var $var is empty"
+              exit 1
+            fi
+          done
+          for var in API_BASE_URL OTEL_ENDPOINT; do
+            val="${!var}"
+            case "$val" in
+              https://*) ;;
+              *) echo "::error::$var must start with https:// (got: $val)"; exit 1 ;;
+            esac
+          done
+          case "$ALLOWLIST" in
+            \[*\]) ;;
+            *) echo "::error::ALLOWLIST is not a JSON array (got: $ALLOWLIST)"; exit 1 ;;
+          esac
+          case "$OTEL_AUTH" in
+            "Basic "*) ;;
+            *) echo "::error::OTEL_AUTH must start with 'Basic ' (got prefix: ${OTEL_AUTH:0:6})"; exit 1 ;;
+          esac
+
       - name: Generate production config
-        env:
-          ALLOWLIST: ${{ secrets.ALLOWLIST || '["*"]' }}
         run: |
           cat > public/config.js << EOF
           window.__CONSOLE_CONFIG__ = {
-            apiBaseUrl: "${{ secrets.API_BASE_URL }}",
+            apiBaseUrl: "$API_BASE_URL",
             environment: "production",
-            posthogKey: "${{ secrets.POSTHOG_PROJECT_TOKEN }}",
+            posthogKey: "$POSTHOG_KEY",
             posthogHost: "https://us.i.posthog.com",
             allowlist: $ALLOWLIST,
-            otelEndpoint: "${{ secrets.OTEL_ENDPOINT }}",
-            otelAuth: "${{ secrets.OTEL_AUTH }}",
+            otelEndpoint: "$OTEL_ENDPOINT",
+            otelAuth: "$OTEL_AUTH",
           };
           EOF
 
@@ -35,8 +64,8 @@ jobs:
 
       - name: Deploy to Tigris (testnet)
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.TIGRIS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.TIGRIS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: "${{ secrets.TIGRIS_ACCESS_KEY_ID }}"
+          AWS_SECRET_ACCESS_KEY: "${{ secrets.TIGRIS_SECRET_ACCESS_KEY }}"
           AWS_REGION: auto
         run: |
           aws s3 sync public/ s3://provider-console/ \
@@ -48,6 +77,13 @@ jobs:
   deploy-mainnet:
     runs-on: ubuntu-latest
     environment: mainnet
+    env:
+      API_BASE_URL: "${{ secrets.MAINNET_API_BASE_URL }}"
+      STELLAR_NETWORK: "${{ secrets.MAINNET_STELLAR_NETWORK }}"
+      POSTHOG_KEY: "${{ secrets.POSTHOG_PROJECT_TOKEN }}"
+      OTEL_ENDPOINT: "${{ secrets.MAINNET_OTEL_ENDPOINT }}"
+      OTEL_AUTH: "${{ secrets.MAINNET_OTEL_AUTH }}"
+      ALLOWLIST: '${{ secrets.MAINNET_ALLOWLIST || ''["*"]'' }}'
     steps:
       - uses: actions/checkout@v4
 
@@ -55,20 +91,47 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Validate mainnet config inputs
+        run: |
+          set -euo pipefail
+          for var in API_BASE_URL STELLAR_NETWORK OTEL_ENDPOINT OTEL_AUTH ALLOWLIST; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Required env var $var is empty"
+              exit 1
+            fi
+          done
+          case "$STELLAR_NETWORK" in
+            testnet|mainnet) ;;
+            *) echo "::error::STELLAR_NETWORK must be 'testnet' or 'mainnet' (got: $STELLAR_NETWORK)"; exit 1 ;;
+          esac
+          for var in API_BASE_URL OTEL_ENDPOINT; do
+            val="${!var}"
+            case "$val" in
+              https://*) ;;
+              *) echo "::error::$var must start with https:// (got: $val)"; exit 1 ;;
+            esac
+          done
+          case "$ALLOWLIST" in
+            \[*\]) ;;
+            *) echo "::error::ALLOWLIST is not a JSON array (got: $ALLOWLIST)"; exit 1 ;;
+          esac
+          case "$OTEL_AUTH" in
+            "Basic "*) ;;
+            *) echo "::error::OTEL_AUTH must start with 'Basic ' (got prefix: ${OTEL_AUTH:0:6})"; exit 1 ;;
+          esac
+
       - name: Generate mainnet config
-        env:
-          ALLOWLIST: ${{ secrets.MAINNET_ALLOWLIST || '["*"]' }}
         run: |
           cat > public/config.js << EOF
           window.__CONSOLE_CONFIG__ = {
-            apiBaseUrl: "${{ secrets.MAINNET_API_BASE_URL }}",
+            apiBaseUrl: "$API_BASE_URL",
             environment: "production",
-            stellarNetwork: "${{ secrets.MAINNET_STELLAR_NETWORK }}",
-            posthogKey: "${{ secrets.POSTHOG_PROJECT_TOKEN }}",
+            stellarNetwork: "$STELLAR_NETWORK",
+            posthogKey: "$POSTHOG_KEY",
             posthogHost: "https://us.i.posthog.com",
             allowlist: $ALLOWLIST,
-            otelEndpoint: "${{ secrets.MAINNET_OTEL_ENDPOINT }}",
-            otelAuth: "${{ secrets.MAINNET_OTEL_AUTH }}",
+            otelEndpoint: "$OTEL_ENDPOINT",
+            otelAuth: "$OTEL_AUTH",
           };
           EOF
 
@@ -77,8 +140,8 @@ jobs:
 
       - name: Deploy to Tigris (mainnet)
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.MAINNET_TIGRIS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.MAINNET_TIGRIS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: "${{ secrets.MAINNET_TIGRIS_ACCESS_KEY_ID }}"
+          AWS_SECRET_ACCESS_KEY: "${{ secrets.MAINNET_TIGRIS_SECRET_ACCESS_KEY }}"
           AWS_REGION: auto
         run: |
           aws s3 sync public/ s3://mainnet-provider-console/ \
