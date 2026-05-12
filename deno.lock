@@ -4328,6 +4328,12 @@
       ]
     }
   },
+  "remote": {
+    "https://raw.githubusercontent.com/Moonlight-Protocol/ui/v0.3.1/src/invite-waitlist/mod.ts": "8d81faf17a5a86e9818e4543cdd63ef8d947eb127145c5be874853e390f5f266",
+    "https://raw.githubusercontent.com/Moonlight-Protocol/ui/v0.3.1/src/layout/mod.ts": "064e49573a35de0124de1e7ab2cdfc4f661a3e2415da69f70b0a607c5224f64f",
+    "https://raw.githubusercontent.com/Moonlight-Protocol/ui/v0.3.1/src/nav/mod.ts": "4bce92a8e347e12953f2fc7e4329e0b58e3dcb8d1c872054e2d30beeba4373e0",
+    "https://raw.githubusercontent.com/Moonlight-Protocol/ui/v0.3.1/src/stepper/mod.ts": "e84eba2c0f5b7ad549a5e4347a492480678310e7fcf1d71d366aff46507a4190"
+  },
   "workspace": {
     "dependencies": [
       "jsr:@luca/esbuild-deno-loader@0.11",
