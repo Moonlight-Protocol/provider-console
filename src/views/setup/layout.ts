@@ -1,12 +1,19 @@
 /**
- * Shared setup layout with progress stepper.
+ * Setup wrapper — auth check, nav, stepper, and content slot.
+ * Stepper rendering comes from @moonlight/ui; the step vocabulary
+ * (SETUP_STEPS) stays app-side.
  */
+import { renderNav } from "@moonlight/ui/nav";
+import { pageLayout } from "@moonlight/ui/layout";
+import { renderStepper } from "@moonlight/ui/stepper";
 import { isAuthenticated } from "../../lib/api.ts";
 import { getConnectedAddress, isMasterSeedReady } from "../../lib/wallet.ts";
 import { isAllowed } from "../../lib/config.ts";
 import { navigate } from "../../lib/router.ts";
-import { renderNav } from "../../components/nav.ts";
+import { logout } from "../../lib/auth.ts";
 import { SETUP_STEPS, type SetupStepId } from "../../lib/setup.ts";
+
+declare const __APP_VERSION__: string;
 
 export function setupPage(
   currentStep: SetupStepId,
@@ -21,53 +28,28 @@ export function setupPage(
       return document.createElement("div");
     }
 
-    const wrapper = document.createElement("div");
-    wrapper.appendChild(renderNav());
+    const nav = renderNav({
+      brand: "Provider Console",
+      version: __APP_VERSION__,
+      links: [{ href: "#/", label: "Home" }],
+      address: addr,
+      onLogout: logout,
+    });
 
-    const main = document.createElement("main");
-    main.className = "container";
-
-    // Progress stepper
-    const stepper = document.createElement("div");
-    stepper.className = "onboarding-stepper";
-
-    const currentIdx = SETUP_STEPS.findIndex((s) => s.id === currentStep);
-
-    for (let i = 0; i < SETUP_STEPS.length; i++) {
-      const step = SETUP_STEPS[i];
-      const stepEl = document.createElement("div");
-      stepEl.className = "onboarding-step";
-      if (i < currentIdx) stepEl.classList.add("done");
-      if (i === currentIdx) stepEl.classList.add("active");
-
-      const dot = document.createElement("span");
-      dot.className = "step-dot";
-      dot.textContent = i < currentIdx ? "\u2713" : String(i + 1);
-
-      const label = document.createElement("span");
-      label.className = "step-label";
-      label.textContent = step.label;
-
-      stepEl.append(dot, label);
-      stepper.appendChild(stepEl);
-
-      if (i < SETUP_STEPS.length - 1) {
-        const line = document.createElement("div");
-        line.className = "step-line";
-        if (i < currentIdx) line.classList.add("done");
-        stepper.appendChild(line);
-      }
-    }
-
-    main.appendChild(stepper);
+    const stepper = renderStepper({
+      steps: SETUP_STEPS,
+      currentStepId: currentStep,
+    });
 
     const content = document.createElement("div");
     content.className = "onboarding-content";
     const rendered = await renderStep();
     content.appendChild(rendered);
+
+    const main = document.createElement("div");
+    main.appendChild(stepper);
     main.appendChild(content);
 
-    wrapper.appendChild(main);
-    return wrapper;
+    return pageLayout(nav, main);
   };
 }

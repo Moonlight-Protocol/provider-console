@@ -1,3 +1,4 @@
+import { renderInviteWaitlist } from "@moonlight/ui/invite-waitlist";
 import {
   authenticate,
   clearPlatformAuth,
@@ -17,14 +18,29 @@ import { escapeHtml } from "../lib/dom.ts";
 import { API_BASE_URL, isAllowed } from "../lib/config.ts";
 import { startTrace, withSpan } from "../lib/tracer.ts";
 
+// API_BASE_URL already includes the /api/v1 suffix; the lib appends its own.
+// Strip the suffix here so the lib's POST hits the same endpoint.
+const PLATFORM_URL = API_BASE_URL.replace(/\/api\/v1$/, "");
+
+function inviteWaitlistView(address: string): HTMLElement {
+  return renderInviteWaitlist({
+    address,
+    platformUrl: PLATFORM_URL,
+    logoSrc: "moonlight.png",
+    ids: { emailInput: "waitlist-email" },
+    onDisconnect: () => {
+      clearSession();
+      clearPlatformAuth();
+      navigate("/login");
+    },
+  });
+}
+
 export function loginView(): HTMLElement {
   const existingAddr = getConnectedAddress();
   if (isAuthenticated() && isMasterSeedReady()) {
     if (existingAddr && !isAllowed(existingAddr)) {
-      const container = document.createElement("div");
-      container.className = "login-container";
-      renderInviteOnly(container, existingAddr);
-      return container;
+      return inviteWaitlistView(existingAddr);
     }
     navigate("/");
     return document.createElement("div");
@@ -133,7 +149,7 @@ export function loginView(): HTMLElement {
 
         const addr = getConnectedAddress();
         if (addr && !isAllowed(addr)) {
-          renderInviteOnly(container, addr);
+          container.replaceWith(inviteWaitlistView(addr));
           return;
         }
 
@@ -158,84 +174,4 @@ export function loginView(): HTMLElement {
   );
 
   return container;
-}
-
-function renderInviteOnly(container: HTMLElement, address: string): void {
-  const truncated = address.length > 12
-    ? `${address.slice(0, 6)}...${address.slice(-6)}`
-    : address;
-
-  container.innerHTML = `
-    <div class="login-card" style="text-align:center">
-      <img src="moonlight.png" alt="Moonlight" style="width:80px;margin:0 auto 1rem" />
-      <h2 style="margin-bottom:0.5rem">This app is currently invite-only.</h2>
-      <p class="mono" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1.5rem">${
-    escapeHtml(truncated)
-  }</p>
-
-      <form id="waitlist-form" style="display:flex;flex-direction:column;gap:0.75rem">
-        <input
-          type="email"
-          id="waitlist-email"
-          placeholder="your@email.com"
-          required
-          style="padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:6px;font-size:0.9rem"
-        />
-        <button type="submit" class="btn-primary btn-wide">Join Waitlist</button>
-      </form>
-
-      <p id="waitlist-msg" style="margin-top:1rem;font-size:0.85rem" hidden></p>
-
-      <a
-        href="#"
-        id="invite-disconnect"
-        style="display:inline-block;margin-top:1.25rem;font-size:0.85rem;color:var(--text-muted)"
-      >Disconnect</a>
-    </div>
-  `;
-
-  const form = container.querySelector("#waitlist-form") as HTMLFormElement;
-  const msgEl = container.querySelector(
-    "#waitlist-msg",
-  ) as HTMLParagraphElement;
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const email =
-      (container.querySelector("#waitlist-email") as HTMLInputElement).value
-        .trim();
-    if (!email) return;
-
-    const btn = form.querySelector("button") as HTMLButtonElement;
-    btn.disabled = true;
-    msgEl.hidden = true;
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/waitlist`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, walletPublicKey: address }),
-      });
-      if (!res.ok) throw new Error("Request failed");
-      msgEl.style.color = "var(--success, #22c55e)";
-      msgEl.textContent = "You're on the list!";
-      msgEl.hidden = false;
-      form.hidden = true;
-    } catch {
-      msgEl.style.color = "var(--error, #ef4444)";
-      msgEl.textContent = "Something went wrong. Please try again.";
-      msgEl.hidden = false;
-      btn.disabled = false;
-    }
-  });
-
-  container.querySelector("#invite-disconnect")?.addEventListener(
-    "click",
-    (e) => {
-      e.preventDefault();
-      clearSession();
-      clearPlatformAuth();
-      navigate("/login", { force: true });
-    },
-  );
 }

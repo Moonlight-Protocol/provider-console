@@ -16,6 +16,10 @@ declare global {
       otelAuth?: string;
     };
   }
+  // Mirror the Window-side declaration on globalThis so the typed access below
+  // type-checks under `deno check` (the dom lib's globalThis doesn't extend Window
+  // in Deno's type context).
+  var __CONSOLE_CONFIG__: Window["__CONSOLE_CONFIG__"];
 }
 
 const config = globalThis.__CONSOLE_CONFIG__ ?? {};
