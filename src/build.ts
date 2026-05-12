@@ -26,9 +26,47 @@ const BUFFER_SHIM = resolve(SRC_DIR, "shims/buffer.ts");
 const OUTFILE = resolve(PROJECT_ROOT, "public/app.js");
 const DENO_JSON = resolve(PROJECT_ROOT, "deno.json");
 
+// Pinned @moonlight/ui tag. raw.githubusercontent.com serves CSS as
+// text/plain with nosniff so browsers refuse @import of these URLs; we
+// fetch + concatenate at build time and write the result to public/styles.css.
+// Do not change without bumping the consumer-side deps explicitly.
+const UI_LIB_TAG = "v0.3.1";
+const UI_LIB_CSS_FILES = [
+  "tokens/tokens.css",
+  "base-styles/base-styles.css",
+  "nav/nav.css",
+  "stepper/stepper.css",
+];
+const APP_STYLES_SRC = resolve(SRC_DIR, "app-styles.css");
+const STYLES_OUT = resolve(PROJECT_ROOT, "public/styles.css");
+
+async function buildStyles(): Promise<void> {
+  const parts: string[] = [];
+  for (const path of UI_LIB_CSS_FILES) {
+    const url =
+      `https://raw.githubusercontent.com/Moonlight-Protocol/ui/${UI_LIB_TAG}/src/${path}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(
+        `Failed to fetch ${url}: ${res.status} ${res.statusText}`,
+      );
+    }
+    const body = await res.text();
+    parts.push(`/* @moonlight/ui ${UI_LIB_TAG} — ${path} */\n${body}`);
+  }
+  const appStyles = await Deno.readTextFile(APP_STYLES_SRC);
+  parts.push(`/* provider-console app-styles */\n${appStyles}`);
+  await Deno.writeTextFile(STYLES_OUT, parts.join("\n"));
+  console.log(
+    `Built public/styles.css from @moonlight/ui@${UI_LIB_TAG} + src/app-styles.css`,
+  );
+}
+
 const isProduction = Deno.args.includes("--production");
 const denoJson = JSON.parse(await Deno.readTextFile(DENO_JSON));
 const version = denoJson.version ?? "0.0.0";
+
+await buildStyles();
 
 await esbuild.build({
   entryPoints: [ENTRY_POINT],

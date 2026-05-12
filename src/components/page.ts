@@ -1,4 +1,5 @@
-import { renderNav } from "./nav.ts";
+import { renderNav } from "@moonlight/ui/nav";
+import { pageLayout } from "@moonlight/ui/layout";
 import {
   checkMembershipStatus,
   isAuthenticated,
@@ -8,6 +9,9 @@ import {
 import { getConnectedAddress, isMasterSeedReady } from "../lib/wallet.ts";
 import { isAllowed } from "../lib/config.ts";
 import { navigate } from "../lib/router.ts";
+import { logout } from "../lib/auth.ts";
+
+declare const __APP_VERSION__: string;
 
 const BANNER_ID = "membership-banner";
 
@@ -84,14 +88,15 @@ export function page(
       return document.createElement("div");
     }
 
-    const wrapper = document.createElement("div");
-    wrapper.appendChild(renderNav());
-
-    const main = document.createElement("main");
-    main.className = "container";
+    const nav = renderNav({
+      brand: "Provider Console",
+      version: __APP_VERSION__,
+      links: [{ href: "#/", label: "Home" }],
+      address: addr,
+      onLogout: logout,
+    });
     const content = await renderContent();
-    main.appendChild(content);
-    wrapper.appendChild(main);
+    const wrapper = pageLayout(nav, content);
 
     // Intentionally fire-and-forget — membership checks are best-effort and
     // should not block page rendering or cancel on navigation.
