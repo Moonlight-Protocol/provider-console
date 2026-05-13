@@ -25,6 +25,7 @@ const ENTRY_POINT = resolve(SRC_DIR, "app.ts");
 const BUFFER_SHIM = resolve(SRC_DIR, "shims/buffer.ts");
 const OUTFILE = resolve(PROJECT_ROOT, "public/app.js");
 const DENO_JSON = resolve(PROJECT_ROOT, "deno.json");
+const HEALTH_OUT = resolve(PROJECT_ROOT, "public/health.json");
 
 // Pinned @moonlight/ui tag. raw.githubusercontent.com serves CSS as
 // text/plain with nosniff so browsers refuse @import of these URLs; we
@@ -39,6 +40,12 @@ const UI_LIB_CSS_FILES = [
 ];
 const APP_STYLES_SRC = resolve(SRC_DIR, "app-styles.css");
 const STYLES_OUT = resolve(PROJECT_ROOT, "public/styles.css");
+
+async function writeHealthJson(version: string): Promise<void> {
+  const health = { status: "ok", service: "provider-console", version };
+  await Deno.writeTextFile(HEALTH_OUT, JSON.stringify(health) + "\n");
+  console.log(`Built public/health.json (provider-console ${version})`);
+}
 
 async function buildStyles(): Promise<void> {
   const parts: string[] = [];
@@ -65,6 +72,8 @@ async function buildStyles(): Promise<void> {
 const isProduction = Deno.args.includes("--production");
 const denoJson = JSON.parse(await Deno.readTextFile(DENO_JSON));
 const version = denoJson.version ?? "0.0.0";
+
+await writeHealthJson(version);
 
 await buildStyles();
 
