@@ -91,7 +91,10 @@ export function page(
     const nav = renderNav({
       brand: "Provider Console",
       version: __APP_VERSION__,
-      links: [{ href: "#/", label: "Home" }],
+      links: [
+        { href: "#/", label: "Home" },
+        { href: "#/events", label: "Events" },
+      ],
       address: addr,
       onLogout: logout,
     });

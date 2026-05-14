@@ -9,6 +9,7 @@ import { loginView } from "./views/login.ts";
 import { homeView } from "./views/home.ts";
 import { ppManageView } from "./views/pp-manage.ts";
 import { dashboardView } from "./views/dashboard.ts";
+import { eventsView } from "./views/events.ts";
 import { recoverView } from "./views/recover.ts";
 
 // Setup flow
@@ -28,6 +29,7 @@ route("/setup/metadata", metadataView);
 route("/setup/fund", fundView);
 route("/setup/join", joinView);
 route("/dashboard", dashboardView);
+route("/events", eventsView);
 route("/recover", recoverView);
 
 // Root — redirect based on auth state
