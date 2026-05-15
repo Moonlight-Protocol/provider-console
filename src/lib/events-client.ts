@@ -92,6 +92,30 @@ export type ProviderEvent =
     ts: number;
     scope: EventScope;
     payload: { channelContractId: string };
+  }
+  | {
+    kind: "bundle.deposit_completed";
+    ts: number;
+    scope: EventScope;
+    payload: {
+      bundleId: string;
+      txId: string;
+      channelContractId: string;
+      depositorAddress: string;
+      amount: string;
+    };
+  }
+  | {
+    kind: "bundle.withdraw_completed";
+    ts: number;
+    scope: EventScope;
+    payload: {
+      bundleId: string;
+      txId: string;
+      channelContractId: string;
+      recipientAddress: string;
+      amount: string;
+    };
   };
 
 export type EventKind = ProviderEvent["kind"];
