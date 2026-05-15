@@ -392,8 +392,6 @@ function setupDashboard(
   let wsStatus: "connecting" | "open" | "closed" = "connecting";
 
   const utxos = new Map<string, UtxoInfo>(initialUtxos.map((u) => [u.id, u]));
-  const mempool = new Map<string, HTMLElement>();
-  const submitted = new Map<string, HTMLElement>();
 
   function fadeInItem(el: HTMLElement): void {
     requestAnimationFrame(() => el.classList.add("is-visible"));
@@ -412,8 +410,6 @@ function setupDashboard(
     for (
       const el of [depositEl, mempoolEl, submittedEl, verifiedEl, utxosEl, withdrawnEl]
     ) el.textContent = "";
-    mempool.clear();
-    submitted.clear();
     utxos.clear();
     hideTxDetail();
     syncAllCounts();
@@ -675,46 +671,36 @@ function setupDashboard(
       console.debug("[dashboard] event received", event.kind, event.payload);
       switch (event.kind) {
         case "mempool.bundle_added": {
-          if (mempool.has(event.payload.bundleId)) return;
           const item = makeItem(truncate(event.payload.bundleId));
           item.title = event.payload.bundleId;
-          mempool.set(event.payload.bundleId, item);
           mempoolEl.appendChild(item);
           fadeInItem(item);
+          trimHistory(mempoolEl);
           break;
         }
         case "mempool.bundle_expired": {
-          fadeOutAndRemove(mempool.get(event.payload.bundleId));
-          mempool.delete(event.payload.bundleId);
+          // No-op: the mempool item ages out on its own 60s timer.
           break;
         }
         case "executor.transaction_submitted": {
-          for (const bid of event.payload.bundleIds) {
-            fadeOutAndRemove(mempool.get(bid));
-            mempool.delete(bid);
-          }
-          if (submitted.has(event.payload.txHash)) return;
+          // Add a Submitted item; the prior Mempool items stay until their
+          // own 60s lifetime is up.
           const item = makeItem(truncate(event.payload.txHash));
           item.title = event.payload.txHash;
           item.addEventListener(
             "click",
             () => showDetail({ kind: "tx", txId: event.payload.txHash }),
           );
-          submitted.set(event.payload.txHash, item);
           submittedEl.appendChild(item);
           fadeInItem(item);
+          trimHistory(submittedEl);
           break;
         }
         case "executor.execution_failed": {
-          for (const bid of event.payload.bundleIds) {
-            fadeOutAndRemove(mempool.get(bid));
-            mempool.delete(bid);
-          }
+          // No-op: prior items age out naturally.
           break;
         }
         case "verifier.bundle_completed": {
-          fadeOutAndRemove(submitted.get(event.payload.txId));
-          submitted.delete(event.payload.txId);
           const item = makeItem(truncate(event.payload.txId));
           item.title = event.payload.txId;
           item.addEventListener(
@@ -728,8 +714,7 @@ function setupDashboard(
           break;
         }
         case "verifier.bundle_failed": {
-          fadeOutAndRemove(submitted.get(event.payload.txId));
-          submitted.delete(event.payload.txId);
+          // No-op: prior items age out naturally.
           break;
         }
         case "bundle.deposit_completed": {
