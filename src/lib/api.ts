@@ -138,6 +138,8 @@ export interface PpInfo {
     councilName: string | null;
     status: string;
     channelAuthId: string;
+    claimedJurisdictions: string[] | null;
+    councilJurisdictions: string[] | null;
   } | null;
 }
 

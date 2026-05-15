@@ -77,14 +77,26 @@ function renderContent(): HTMLElement {
         : pp.councilMembership?.status === "PENDING"
         ? "pending"
         : "inactive";
-      const jurisdictions = Array.isArray(meta.jurisdictions)
-        ? meta.jurisdictions.map((code: string) =>
-          code.toUpperCase().replace(
-            /./g,
-            (c: string) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65),
-          )
-        ).join(" ")
-        : "";
+      const membership = pp.councilMembership;
+      let codes: string[] = [];
+      if (membership?.status === "ACTIVE") {
+        codes = Array.from(
+          new Set([
+            ...(membership.councilJurisdictions || []),
+            ...(membership.claimedJurisdictions || []),
+          ].map((c) => c.toUpperCase())),
+        );
+      } else if (membership?.claimedJurisdictions) {
+        codes = membership.claimedJurisdictions.map((c) => c.toUpperCase());
+      } else if (Array.isArray(meta.jurisdictions)) {
+        codes = (meta.jurisdictions as string[]).map((c) => c.toUpperCase());
+      }
+      const jurisdictions = codes.map((code) =>
+        code.replace(
+          /./g,
+          (c: string) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65),
+        )
+      ).join(" ");
       const councilCell = pp.councilMembership?.councilName
         ? escapeHtml(pp.councilMembership.councilName)
         : '<span style="color:var(--text-muted)">-</span>';
