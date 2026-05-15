@@ -13,6 +13,18 @@ import {
 import { capture } from "../lib/analytics.ts";
 import { API_BASE_URL } from "../lib/config.ts";
 
+/**
+ * Pick the membership we'll surface in the providers list. Order: first ACTIVE,
+ * else first PENDING, else first row, else null. The provider detail page shows
+ * every membership; this is just for the at-a-glance row.
+ */
+function primaryMembership(pp: PpInfo): PpInfo["councilMemberships"][number] | undefined {
+  const memberships = pp.councilMemberships;
+  return memberships.find((m) => m.status === "ACTIVE") ??
+    memberships.find((m) => m.status === "PENDING") ??
+    memberships[0];
+}
+
 function truncate(key: string): string {
   return key.length > 12 ? `${key.slice(0, 6)}...${key.slice(-4)}` : key;
 }
@@ -40,7 +52,7 @@ function renderContent(): HTMLElement {
 
       // Auto-refresh any PENDING memberships in the background
       const pendingPps = knownPps.filter((pp) =>
-        pp.councilMembership?.status === "PENDING"
+        primaryMembership(pp)?.status === "PENDING"
       );
       for (const pp of pendingPps) {
         checkMembershipStatus(pp.publicKey).then((status) => {
@@ -72,12 +84,12 @@ function renderContent(): HTMLElement {
       const meta = JSON.parse(
         localStorage.getItem(`pp_meta_${pp.publicKey}`) || "{}",
       );
-      const statusClass = pp.councilMembership?.status === "ACTIVE"
+      const membership = primaryMembership(pp);
+      const statusClass = membership?.status === "ACTIVE"
         ? "active"
-        : pp.councilMembership?.status === "PENDING"
+        : membership?.status === "PENDING"
         ? "pending"
         : "inactive";
-      const membership = pp.councilMembership;
       let codes: string[] = [];
       if (membership?.status === "ACTIVE") {
         codes = Array.from(
@@ -97,18 +109,18 @@ function renderContent(): HTMLElement {
           (c: string) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65),
         )
       ).join(" ");
-      const councilCell = pp.councilMembership?.councilName
-        ? escapeHtml(pp.councilMembership.councilName)
+      const councilCell = membership?.councilName
+        ? escapeHtml(membership.councilName)
         : '<span style="color:var(--text-muted)">-</span>';
-      const statusCell = pp.councilMembership
-        ? pp.councilMembership.status === "PENDING"
+      const statusCell = membership
+        ? membership.status === "PENDING"
           ? `<span class="badge badge-pending check-status-btn" data-pp-key="${
             escapeHtml(pp.publicKey)
           }" title="Check for updates" style="cursor:pointer">${
-            escapeHtml(pp.councilMembership.status)
+            escapeHtml(membership.status)
           }</span>`
           : `<span class="badge badge-${statusClass}">${
-            escapeHtml(pp.councilMembership.status)
+            escapeHtml(membership.status)
           }</span>`
         : `<span class="badge join-council-btn" data-pp-key="${
           escapeHtml(pp.publicKey)

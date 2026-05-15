@@ -127,20 +127,30 @@ export async function signPayload<T>(payload: T, secretKey: string): Promise<{
 
 // --- PP management ---
 
+export interface ChannelInfo {
+  channelContractId: string;
+  assetCode: string;
+  assetContractId: string;
+  label: string | null;
+}
+
+export interface MembershipInfo {
+  councilUrl: string;
+  councilName: string | null;
+  status: string;
+  channelAuthId: string;
+  claimedJurisdictions: string[] | null;
+  councilJurisdictions: string[] | null;
+  channels: ChannelInfo[];
+}
+
 export interface PpInfo {
   publicKey: string;
   derivationIndex: number;
   label: string | null;
   isActive: boolean;
   createdAt: string;
-  councilMembership: {
-    councilUrl: string;
-    councilName: string | null;
-    status: string;
-    channelAuthId: string;
-    claimedJurisdictions: string[] | null;
-    councilJurisdictions: string[] | null;
-  } | null;
+  councilMemberships: MembershipInfo[];
 }
 
 export async function registerPp(
@@ -295,6 +305,80 @@ export async function getTreasury(
     `/dashboard/treasury?ppPublicKey=${encodeURIComponent(ppPublicKey)}`,
   );
   if (!res.ok) throw new Error("Failed to fetch treasury info");
+  const { data } = await res.json();
+  return data;
+}
+
+// --- UTXOs ---
+
+export interface UtxoInfo {
+  id: string;
+  amount: string;
+  createdAtBundleId: string;
+  createdAt: string;
+}
+
+export async function getUtxos(
+  ppPublicKey: string,
+  channelContractId: string,
+): Promise<UtxoInfo[]> {
+  const res = await platformFetch(
+    `/dashboard/utxos?ppPublicKey=${encodeURIComponent(ppPublicKey)}` +
+      `&channelContractId=${encodeURIComponent(channelContractId)}`,
+  );
+  if (!res.ok) throw new Error("Failed to fetch UTXOs");
+  const { data } = await res.json();
+  return data;
+}
+
+// --- Transaction detail ---
+
+export interface TxBundleDetail {
+  id: string;
+  createdAt: string;
+  jurisdictionFrom: string | null;
+  jurisdictionTo: string | null;
+  deposits: Array<{ depositorAddress: string; amount: string }>;
+  withdraws: Array<{ recipientAddress: string; amount: string }>;
+  spendCount: number;
+  createCount: number;
+}
+
+export interface TxUtxoDetail {
+  id: string;
+  amount: string;
+  createdAtBundleId: string;
+  spent: boolean;
+}
+
+export interface TransactionDetail {
+  id: string;
+  status: string;
+  ledgerSequence: string;
+  channelContractId: string | null;
+  timeline: {
+    mempoolAt: string | null;
+    submittedAt: string;
+    verifiedAt: string | null;
+  };
+  jurisdictions: { from: string[]; to: string[] };
+  senders: string[];
+  receivers: string[];
+  deposits: Array<{ depositorAddress: string; amount: string }>;
+  withdraws: Array<{ recipientAddress: string; amount: string }>;
+  bundles: TxBundleDetail[];
+  utxos: TxUtxoDetail[];
+}
+
+export async function getTransactionDetail(
+  txId: string,
+  ppPublicKey: string,
+): Promise<TransactionDetail> {
+  const res = await platformFetch(
+    `/dashboard/transactions/${encodeURIComponent(txId)}` +
+      `?ppPublicKey=${encodeURIComponent(ppPublicKey)}`,
+  );
+  if (!res.ok) throw new Error("Failed to fetch transaction detail");
   const { data } = await res.json();
   return data;
 }
