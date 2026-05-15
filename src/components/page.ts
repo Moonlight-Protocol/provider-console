@@ -29,7 +29,7 @@ async function checkMemberships(wrapper: HTMLElement) {
   }
 
   const activePps = pps.filter((pp) =>
-    pp.councilMembership?.status === "ACTIVE"
+    pp.councilMemberships.some((m) => m.status === "ACTIVE")
   );
   if (activePps.length === 0) return;
 
@@ -38,10 +38,13 @@ async function checkMemberships(wrapper: HTMLElement) {
     try {
       const result = await checkMembershipStatus(pp.publicKey);
       if (result !== "ACTIVE") {
+        const activeMembership = pp.councilMemberships.find((m) =>
+          m.status === "ACTIVE"
+        );
         showBanner(
           wrapper,
           `Your provider "${pp.label || pp.publicKey}" was removed from ${
-            pp.councilMembership!.councilName || "the council"
+            activeMembership?.councilName || "the council"
           }.`,
         );
         revoked = true;

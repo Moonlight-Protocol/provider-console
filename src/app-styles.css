@@ -214,3 +214,15 @@ th {
   border-radius: 4px;
   font-size: 0.75rem;
 }
+
+/* Provider dashboard — Verified column drift animation */
+@keyframes tx-drift {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100vw);
+    opacity: 0;
+  }
+}
