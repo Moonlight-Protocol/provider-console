@@ -18,6 +18,7 @@ import {
 } from "../lib/events-client.ts";
 import { getConnectedAddress, signTransaction } from "../lib/wallet.ts";
 import { buildFundTx, submitHorizonTx } from "../lib/stellar.ts";
+import { API_BASE_URL } from "../lib/config.ts";
 
 const ITEM_FADE_OUT_MS = 300;
 const KEEP_LAST_HISTORICAL = 30;
@@ -163,21 +164,21 @@ function renderTemplate(
         <a href="#/" class="icon-btn" title="Back" style="color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></a>
         <h2 style="margin:0">${escapeHtml(name)}</h2>
       </div>
-      <button id="copy-pp-address" class="icon-btn" title="Copy provider address"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+      <div style="display:flex;align-items:center;gap:0.25rem">
+        <button id="copy-provider-url" class="icon-btn" title="Copy provider URL"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
+        <button id="copy-opex-address" class="icon-btn" title="Copy OpEx address"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg></button>
+        <button id="fund-btn" class="icon-btn" title="Fund OpEx account"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8"/><path d="M12 18V6"/></svg></button>
+      </div>
     </div>
 
-    <div class="stat-card" style="padding:1rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem;max-width:520px">
-      <div style="display:flex;align-items:center;gap:0.4rem">
-        <span class="stat-label">Balance</span>
-        <button id="copy-opex-address" class="icon-btn" title="Copy OpEx address"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-      </div>
-      <span class="stat-value">${escapeHtml(opexBalance)}</span>
-      <button id="fund-btn" class="btn-primary" style="margin-left:auto">Fund</button>
-      <p id="fund-error" class="error-text" hidden style="margin:0"></p>
+    <div style="padding:0.6rem 0.9rem;margin-bottom:1.5rem;border:1px solid var(--border);border-radius:8px;background:var(--surface);display:inline-flex;flex-direction:column;align-items:flex-start;gap:0.35rem;text-align:left">
+      <span style="color:var(--text-muted);font-size:0.7rem;letter-spacing:0.05em;text-transform:uppercase">OpEx Balance</span>
+      <span style="font-size:1.1rem;font-weight:600">${escapeHtml(opexBalance)}</span>
     </div>
+    <p id="fund-error" class="error-text" hidden style="margin:0 0 1rem"></p>
 
     <h3 style="margin:0 0 0.5rem">Councils</h3>
-    <div id="councils" style="display:grid;gap:0.75rem;margin-bottom:2rem">${councilCards}</div>
+    <div id="councils" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin-bottom:2rem">${councilCards}</div>
 
     <div style="display:flex;align-items:baseline;gap:0.75rem;margin-bottom:0.5rem">
       <h3 style="margin:0">Dashboard</h3>
@@ -186,27 +187,27 @@ function renderTemplate(
 
     <div id="dashboard" style="display:grid;grid-template-columns:repeat(6,1fr);gap:0.75rem;margin-bottom:1.5rem">
       <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem">Deposit</div>
+        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Deposit</span><span id="deposit-count" class="badge" style="font-weight:normal">0</span></div>
         <div id="deposit-list" class="dashboard-column"></div>
       </div>
       <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem">Mempool</div>
+        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Mempool</span><span id="mempool-count" class="badge" style="font-weight:normal">0</span></div>
         <div id="mempool-list" class="dashboard-column"></div>
       </div>
       <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem">Submitted</div>
+        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Submitted</span><span id="submitted-count" class="badge" style="font-weight:normal">0</span></div>
         <div id="submitted-list" class="dashboard-column"></div>
       </div>
       <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem">Verified</div>
+        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Verified</span><span id="verified-count" class="badge" style="font-weight:normal">0</span></div>
         <div id="verified-list" class="dashboard-column"></div>
       </div>
       <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem">UTXOs</div>
+        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>UTXOs</span><span id="utxos-count" class="badge" style="font-weight:normal">0</span></div>
         <div id="utxos-list" class="dashboard-column"></div>
       </div>
       <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem">Withdrawn</div>
+        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Withdrawn</span><span id="withdrawn-count" class="badge" style="font-weight:normal">0</span></div>
         <div id="withdrawn-list" class="dashboard-column"></div>
       </div>
     </div>
@@ -228,7 +229,7 @@ function renderCouncilCard(m: MembershipInfo): string {
     ).join("")
     : '<span style="color:var(--text-muted);font-size:0.85rem">No assets yet</span>';
   return `
-    <div class="stat-card ${m.status === "ACTIVE" ? "active" : "pending"}" style="padding:0.75rem 1rem">
+    <div class="stat-card" style="padding:0.75rem 1rem">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem">
         <span style="font-weight:600">${escapeHtml(m.councilName || "—")}</span>
         <div>${flagsHtml}</div>
@@ -239,14 +240,23 @@ function renderCouncilCard(m: MembershipInfo): string {
 }
 
 function wireHeader(root: HTMLElement, pp: PpInfo): void {
-  for (const id of ["#copy-pp-address", "#copy-opex-address"]) {
-    const btn = root.querySelector(id) as HTMLButtonElement | null;
-    btn?.addEventListener("click", () => {
-      navigator.clipboard.writeText(pp.publicKey).then(() =>
-        withBriefCopyFeedback(btn)
-      );
-    });
-  }
+  const opexBtn = root.querySelector(
+    "#copy-opex-address",
+  ) as HTMLButtonElement | null;
+  opexBtn?.addEventListener("click", () => {
+    navigator.clipboard.writeText(pp.publicKey).then(() =>
+      withBriefCopyFeedback(opexBtn)
+    );
+  });
+  const urlBtn = root.querySelector(
+    "#copy-provider-url",
+  ) as HTMLButtonElement | null;
+  urlBtn?.addEventListener("click", () => {
+    const providerUrl = new URL(API_BASE_URL).origin;
+    navigator.clipboard.writeText(providerUrl).then(() =>
+      withBriefCopyFeedback(urlBtn)
+    );
+  });
 }
 
 function wireFund(root: HTMLElement, ppPublicKey: string): void {
@@ -259,25 +269,25 @@ function wireFund(root: HTMLElement, ppPublicKey: string): void {
     );
     if (!amount) return;
     fundBtn.disabled = true;
-    fundBtn.textContent = "Building…";
     errEl.hidden = true;
+    console.debug("[fund] click — destination", ppPublicKey, "amount", amount);
     try {
       const source = getConnectedAddress();
+      console.debug("[fund] source wallet address", source);
       if (!source) throw new Error("Wallet not connected");
+      console.debug("[fund] building tx …");
       const xdr = await buildFundTx(source, ppPublicKey, amount.trim());
-      fundBtn.textContent = "Sign in wallet…";
+      console.debug("[fund] built tx xdr (first 80 chars)", xdr.slice(0, 80));
       const signed = await signTransaction(xdr);
-      fundBtn.textContent = "Submitting…";
+      console.debug("[fund] signed xdr (first 80 chars)", signed.slice(0, 80));
       await submitHorizonTx(signed);
-      fundBtn.textContent = "Funded!";
-      setTimeout(() => {
-        fundBtn.textContent = "Fund";
-        fundBtn.disabled = false;
-      }, 1500);
+      console.debug("[fund] submitted OK");
     } catch (err) {
-      errEl.textContent = err instanceof Error ? err.message : String(err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[fund] failed", err);
+      errEl.textContent = msg;
       errEl.hidden = false;
-      fundBtn.textContent = "Fund";
+    } finally {
       fundBtn.disabled = false;
     }
   });
@@ -324,6 +334,26 @@ function setupDashboard(
   const withdrawnEl = root.querySelector("#withdrawn-list") as HTMLElement;
   const txDetailEl = root.querySelector("#tx-detail") as HTMLElement;
 
+  const counts: Record<string, HTMLElement> = {
+    deposit: root.querySelector("#deposit-count") as HTMLElement,
+    mempool: root.querySelector("#mempool-count") as HTMLElement,
+    submitted: root.querySelector("#submitted-count") as HTMLElement,
+    verified: root.querySelector("#verified-count") as HTMLElement,
+    utxos: root.querySelector("#utxos-count") as HTMLElement,
+    withdrawn: root.querySelector("#withdrawn-count") as HTMLElement,
+  };
+  function syncCount(key: keyof typeof counts, container: HTMLElement): void {
+    counts[key].textContent = String(container.childElementCount);
+  }
+  function syncAllCounts(): void {
+    syncCount("deposit", depositEl);
+    syncCount("mempool", mempoolEl);
+    syncCount("submitted", submittedEl);
+    syncCount("verified", verifiedEl);
+    syncCount("utxos", utxosEl);
+    syncCount("withdrawn", withdrawnEl);
+  }
+
   const utxos = new Map<string, UtxoInfo>(initialUtxos.map((u) => [u.id, u]));
   const mempool = new Map<string, HTMLElement>();
   const submitted = new Map<string, HTMLElement>();
@@ -335,7 +365,10 @@ function setupDashboard(
   function fadeOutAndRemove(el: HTMLElement | undefined): void {
     if (!el) return;
     el.classList.remove("is-visible");
-    setTimeout(() => el.remove(), ITEM_FADE_OUT_MS);
+    setTimeout(() => {
+      el.remove();
+      syncAllCounts();
+    }, ITEM_FADE_OUT_MS);
   }
 
   function makeItem(label: string, subLabel?: string): HTMLElement {
@@ -375,8 +408,10 @@ function setupDashboard(
       utxosEl.appendChild(item);
       fadeInItem(item);
     }
+    syncCount("utxos", utxosEl);
   }
   renderUtxos();
+  syncAllCounts();
 
   async function refreshUtxos(): Promise<void> {
     if (!channelContractId) return;
@@ -411,6 +446,7 @@ function setupDashboard(
 
   return {
     handleEvent(event) {
+      console.debug("[dashboard] event received", event.kind, event.payload);
       switch (event.kind) {
         case "mempool.bundle_added": {
           if (mempool.has(event.payload.bundleId)) return;
@@ -511,6 +547,7 @@ function setupDashboard(
           break;
         }
       }
+      syncAllCounts();
     },
     setStatus(status) {
       statusEl.dataset.status = status;
