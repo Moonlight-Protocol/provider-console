@@ -398,7 +398,13 @@ function setupDashboard(
   function fadeInItem(el: HTMLElement): void {
     requestAnimationFrame(() => el.classList.add("is-visible"));
     if (mode === "live") {
-      setTimeout(() => fadeOutAndRemove(el), LIVE_ITEM_LIFETIME_MS);
+      setTimeout(() => {
+        console.debug(
+          "[dashboard] item lifetime expired, fading",
+          el.title || el.textContent,
+        );
+        fadeOutAndRemove(el);
+      }, LIVE_ITEM_LIFETIME_MS);
     }
   }
 
@@ -475,13 +481,28 @@ function setupDashboard(
   renderUtxos();
   syncAllCounts();
 
-  async function refreshUtxos(): Promise<void> {
-    if (!channelContractId) return;
+  async function appendUtxosFromTx(txId: string): Promise<void> {
     try {
-      const rows = await getUtxos(ppPublicKey, channelContractId);
-      utxos.clear();
-      for (const u of rows) utxos.set(u.id, u);
-      renderUtxos();
+      const detail = await getTransactionDetail(txId, ppPublicKey);
+      for (const u of detail.utxos) {
+        if (u.spent) continue;
+        utxos.set(u.id, {
+          id: u.id,
+          amount: u.amount,
+          createdAtBundleId: u.createdAtBundleId,
+          createdAt: new Date().toISOString(),
+        });
+        const item = makeItem(truncate(u.id), `${fmtAmountStroops(u.amount)} XLM`);
+        item.title = u.id;
+        item.dataset.utxoId = u.id;
+        item.addEventListener(
+          "click",
+          () => showDetail({ kind: "utxo", utxoId: u.id }),
+        );
+        utxosEl.appendChild(item);
+        fadeInItem(item);
+      }
+      syncCount("utxos", utxosEl);
     } catch { /* best effort */ }
   }
 
@@ -703,7 +724,7 @@ function setupDashboard(
           verifiedEl.appendChild(item);
           fadeInItem(item);
           trimHistory(verifiedEl);
-          refreshUtxos();
+          appendUtxosFromTx(event.payload.txId);
           break;
         }
         case "verifier.bundle_failed": {
@@ -725,7 +746,6 @@ function setupDashboard(
           depositEl.appendChild(item);
           fadeInItem(item);
           trimHistory(depositEl);
-          refreshUtxos();
           break;
         }
         case "bundle.withdraw_completed": {
@@ -748,7 +768,6 @@ function setupDashboard(
           withdrawnEl.appendChild(item);
           fadeInItem(item);
           trimHistory(withdrawnEl);
-          refreshUtxos();
           break;
         }
       }
