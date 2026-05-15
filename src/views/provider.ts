@@ -157,9 +157,9 @@ async function renderContent(): Promise<HTMLElement> {
   const name = pp.label || truncateId(pp.publicKey);
 
   root.innerHTML = `
-    <a href="#/" class="btn-link" style="margin-bottom:1rem;display:inline-block">&larr; All Providers</a>
-
-    <h2 style="margin-bottom:0.25rem">${escapeHtml(name)}</h2>
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem"><a href="#/" class="icon-btn" title="Back" style="color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></a><h2 style="margin:0">${
+    escapeHtml(name)
+  }</h2></div>
     <p class="mono" style="font-size:0.75rem;color:var(--text-muted);margin-bottom:1.5rem;word-break:break-all">${
     escapeHtml(pp.publicKey)
   }</p>
