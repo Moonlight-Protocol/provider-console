@@ -217,8 +217,7 @@ function renderContent(): HTMLElement {
     contentEl.querySelectorAll("[data-pp]").forEach((row) => {
       row.addEventListener("click", () => {
         const pk = (row as HTMLElement).dataset.pp!;
-        sessionStorage.setItem("selected_pp", pk);
-        navigate("/pp");
+        navigate(`/provider/${encodeURIComponent(pk)}`);
       });
     });
   }

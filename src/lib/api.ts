@@ -286,8 +286,12 @@ export interface TreasuryData {
   lastModifiedLedger: number;
 }
 
-export async function getTreasury(): Promise<TreasuryData> {
-  const res = await platformFetch("/dashboard/treasury");
+export async function getTreasury(
+  ppPublicKey: string,
+): Promise<TreasuryData> {
+  const res = await platformFetch(
+    `/dashboard/treasury?ppPublicKey=${encodeURIComponent(ppPublicKey)}`,
+  );
   if (!res.ok) throw new Error("Failed to fetch treasury info");
   const { data } = await res.json();
   return data;
