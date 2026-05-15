@@ -3,7 +3,6 @@ import { escapeHtml } from "../lib/dom.ts";
 import {
   getTransactionDetail,
   getTreasury,
-  getUtxos,
   listPps,
   listTransactions,
   type MembershipInfo,
@@ -13,10 +12,7 @@ import {
   type UtxoInfo,
 } from "../lib/api.ts";
 import { getRouteParams, navigate, onCleanup } from "../lib/router.ts";
-import {
-  EventsClient,
-  type ProviderEvent,
-} from "../lib/events-client.ts";
+import { EventsClient, type ProviderEvent } from "../lib/events-client.ts";
 import { getConnectedAddress, signTransaction } from "../lib/wallet.ts";
 import { buildFundTx, submitHorizonTx } from "../lib/stellar.ts";
 import { API_BASE_URL } from "../lib/config.ts";
@@ -26,7 +22,9 @@ const KEEP_LAST_HISTORICAL = 30;
 const LIVE_ITEM_LIFETIME_MS = 30_000;
 
 function truncate(s: string, head = 6, tail = 4): string {
-  return s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s;
+  return s.length > head + tail + 1
+    ? `${s.slice(0, head)}…${s.slice(-tail)}`
+    : s;
 }
 
 function flag(code: string): string {
@@ -142,7 +140,7 @@ async function renderContent(): Promise<HTMLElement> {
 }
 
 function renderTemplate(
-  pp: PpInfo,
+  _pp: PpInfo,
   name: string,
   opexBalance: string,
   memberships: MembershipInfo[],
@@ -166,7 +164,9 @@ function renderTemplate(
 
     <div style="padding:0.6rem 0.9rem;margin-bottom:1.5rem;border:1px solid var(--border);border-radius:8px;background:var(--surface);display:inline-flex;flex-direction:column;align-items:flex-start;gap:0.35rem;text-align:left">
       <span style="color:var(--text-muted);font-size:0.7rem;letter-spacing:0.05em;text-transform:uppercase">OpEx Balance</span>
-      <span style="font-size:1.1rem;font-weight:600">${escapeHtml(opexBalance)}</span>
+      <span style="font-size:1.1rem;font-weight:600">${
+    escapeHtml(opexBalance)
+  }</span>
     </div>
     <p id="fund-error" class="error-text" hidden style="margin:0 0 1rem"></p>
 
@@ -321,7 +321,12 @@ type DashboardHandle = {
 type ClickContext =
   | { kind: "tx"; txId: string }
   | { kind: "utxo"; utxoId: string }
-  | { kind: "withdraw"; txId: string; bundleId: string; recipientAddress: string };
+  | {
+    kind: "withdraw";
+    txId: string;
+    bundleId: string;
+    recipientAddress: string;
+  };
 
 function setupDashboard(
   root: HTMLElement,
@@ -422,13 +427,16 @@ function setupDashboard(
   function makeItem(label: string, subLabel?: string): HTMLElement {
     const el = document.createElement("div");
     el.className = "dashboard-item";
-    el.innerHTML = `<span class="mono" style="overflow:hidden;text-overflow:ellipsis">${
-      escapeHtml(label)
-    }</span>${
-      subLabel
-        ? `<span style="color:var(--text-muted);font-size:0.7rem">${escapeHtml(subLabel)}</span>`
-        : ""
-    }`;
+    el.innerHTML =
+      `<span class="mono" style="overflow:hidden;text-overflow:ellipsis">${
+        escapeHtml(label)
+      }</span>${
+        subLabel
+          ? `<span style="color:var(--text-muted);font-size:0.7rem">${
+            escapeHtml(subLabel)
+          }</span>`
+          : ""
+      }`;
     return el;
   }
 
@@ -698,12 +706,16 @@ function setupDashboard(
 function renderTxDetail(d: TransactionDetail): string {
   const sendersHtml = d.senders.length
     ? d.senders.map((s) =>
-      `<span class="mono" title="${escapeHtml(s)}">${escapeHtml(truncate(s, 8, 6))}</span>`
+      `<span class="mono" title="${escapeHtml(s)}">${
+        escapeHtml(truncate(s, 8, 6))
+      }</span>`
     ).join(", ")
     : '<span style="color:var(--text-muted)">unknown</span>';
   const receiversHtml = d.receivers.length
     ? d.receivers.map((r) =>
-      `<span class="mono" title="${escapeHtml(r)}">${escapeHtml(truncate(r, 8, 6))}</span>`
+      `<span class="mono" title="${escapeHtml(r)}">${
+        escapeHtml(truncate(r, 8, 6))
+      }</span>`
     ).join(", ")
     : '<span style="color:var(--text-muted)">unknown</span>';
   const fromFlags = d.jurisdictions.from.length
@@ -714,7 +726,9 @@ function renderTxDetail(d: TransactionDetail): string {
     : '<span style="color:var(--text-muted)">—</span>';
   const utxosHtml = d.utxos.length
     ? d.utxos.map((u) =>
-      `<li><span class="mono" title="${escapeHtml(u.id)}">${escapeHtml(truncate(u.id))}</span> — ${fmtAmountStroops(u.amount)} XLM${
+      `<li><span class="mono" title="${escapeHtml(u.id)}">${
+        escapeHtml(truncate(u.id))
+      }</span> — ${fmtAmountStroops(u.amount)} XLM${
         u.spent ? " (spent)" : ""
       }</li>`
     ).join("")
@@ -722,9 +736,9 @@ function renderTxDetail(d: TransactionDetail): string {
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
       <div style="font-weight:600">Transaction</div>
-      <span class="badge badge-${d.status === "VERIFIED" ? "active" : "pending"}">${
-    escapeHtml(d.status)
-  }</span>
+      <span class="badge badge-${
+    d.status === "VERIFIED" ? "active" : "pending"
+  }">${escapeHtml(d.status)}</span>
     </div>
     <p class="mono" style="font-size:0.75rem;color:var(--text-muted);word-break:break-all;margin:0 0 0.75rem">${
     escapeHtml(d.id)
@@ -791,7 +805,9 @@ function renderUtxoDetail(u: UtxoInfo | undefined, utxoId: string): string {
       </div>
       <div>
         <span class="stat-label">Created at bundle</span>
-        <div class="mono" style="font-size:0.75rem">${escapeHtml(truncate(u.createdAtBundleId))}</div>
+        <div class="mono" style="font-size:0.75rem">${
+    escapeHtml(truncate(u.createdAtBundleId))
+  }</div>
       </div>
       <div>
         <span class="stat-label">Created</span>
@@ -809,15 +825,17 @@ function renderWithdrawDetail(d: TransactionDetail, recipient: string): string {
   const utxos = d.utxos.filter((u) => u.spent);
   const utxosHtml = utxos.length
     ? utxos.map((u) =>
-      `<li><span class="mono" title="${escapeHtml(u.id)}">${escapeHtml(truncate(u.id))}</span> — ${fmtAmountStroops(u.amount)} XLM</li>`
+      `<li><span class="mono" title="${escapeHtml(u.id)}">${
+        escapeHtml(truncate(u.id))
+      }</span> — ${fmtAmountStroops(u.amount)} XLM</li>`
     ).join("")
     : `<li style="color:var(--text-muted)">No UTXOs in tx record</li>`;
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
       <div style="font-weight:600">Withdraw</div>
-      <span class="badge badge-${d.status === "VERIFIED" ? "active" : "pending"}">${
-    escapeHtml(d.status)
-  }</span>
+      <span class="badge badge-${
+    d.status === "VERIFIED" ? "active" : "pending"
+  }">${escapeHtml(d.status)}</span>
     </div>
     <p style="font-size:0.85rem;margin:0 0 0.75rem">
       <span style="color:var(--text-muted)">Tx</span> <span class="mono">${

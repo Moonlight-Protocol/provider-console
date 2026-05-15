@@ -18,7 +18,9 @@ import { API_BASE_URL } from "../lib/config.ts";
  * else first PENDING, else first row, else null. The provider detail page shows
  * every membership; this is just for the at-a-glance row.
  */
-function primaryMembership(pp: PpInfo): PpInfo["councilMemberships"][number] | undefined {
+function primaryMembership(
+  pp: PpInfo,
+): PpInfo["councilMemberships"][number] | undefined {
   const memberships = pp.councilMemberships;
   return memberships.find((m) => m.status === "ACTIVE") ??
     memberships.find((m) => m.status === "PENDING") ??
