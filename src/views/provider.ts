@@ -123,15 +123,25 @@ async function renderContent(): Promise<HTMLElement> {
   const config = membership?.config as {
     channels?: Array<{ assetCode: string }>;
     jurisdictions?: Array<{ countryCode: string; label: string | null }>;
+    providers?: Array<{ publicKey: string; jurisdictions: string[] | null }>;
   } | null;
 
-  const flags = (config?.jurisdictions || []).map((j) => {
-    const flag = j.countryCode.toUpperCase().replace(
+  const councilCodes = (config?.jurisdictions || []).map((j) =>
+    j.countryCode.toUpperCase()
+  );
+  const ppEntry = (config?.providers || []).find((p) =>
+    p.publicKey === ppPublicKey
+  );
+  const ppCodes = (ppEntry?.jurisdictions || []).map((c) => c.toUpperCase());
+  const mergedCodes = Array.from(new Set([...councilCodes, ...ppCodes]));
+
+  const flags = mergedCodes.map((code) => {
+    const flag = code.replace(
       /./g,
       (c: string) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65),
     );
     return `<span title="${
-      escapeHtml(j.label || j.countryCode)
+      escapeHtml(code)
     }" style="font-size:1.2rem">${flag}</span>`;
   }).join(" ");
 
