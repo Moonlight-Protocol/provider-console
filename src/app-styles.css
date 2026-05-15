@@ -215,14 +215,29 @@ th {
   font-size: 0.75rem;
 }
 
-/* Provider dashboard — Verified column drift animation */
-@keyframes tx-drift {
-  from {
-    transform: translateX(0);
-    opacity: 1;
-  }
-  to {
-    transform: translateX(-100vw);
-    opacity: 0;
-  }
+/* Provider dashboard — column items with fade in/out */
+.dashboard-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.dashboard-item {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 250ms ease;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.dashboard-item.is-visible {
+  opacity: 1;
 }

@@ -19,8 +19,8 @@ import {
 import { getConnectedAddress, signTransaction } from "../lib/wallet.ts";
 import { buildFundTx, submitHorizonTx } from "../lib/stellar.ts";
 
-const VERIFIED_DRIFT_MS = 3000;
-const ADDRESS_TRUNC = 12;
+const ITEM_FADE_OUT_MS = 300;
+const KEEP_LAST_HISTORICAL = 30;
 
 function truncate(s: string, head = 6, tail = 4): string {
   return s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s;
@@ -158,24 +158,20 @@ function renderTemplate(
     : memberships.map((m) => renderCouncilCard(m)).join("");
 
   return `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.25rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
       <div style="display:flex;align-items:center;gap:0.5rem">
         <a href="#/" class="icon-btn" title="Back" style="color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></a>
         <h2 style="margin:0">${escapeHtml(name)}</h2>
       </div>
       <button id="copy-pp-address" class="icon-btn" title="Copy provider address"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
     </div>
-    <p class="mono" style="font-size:0.75rem;color:var(--text-muted);margin-bottom:1.5rem;word-break:break-all">${
-    escapeHtml(pp.publicKey)
-  }</p>
 
-    <div class="stat-card" style="padding:1rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem;max-width:520px">
-      <div>
-        <span class="stat-label">OpEx balance</span>
-        <span class="stat-value" style="display:block;margin-top:0.25rem">${
-    escapeHtml(opexBalance)
-  }</span>
+    <div class="stat-card" style="padding:1rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem;max-width:520px">
+      <div style="display:flex;align-items:center;gap:0.4rem">
+        <span class="stat-label">Balance</span>
+        <button id="copy-opex-address" class="icon-btn" title="Copy OpEx address"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
       </div>
+      <span class="stat-value">${escapeHtml(opexBalance)}</span>
       <button id="fund-btn" class="btn-primary" style="margin-left:auto">Fund</button>
       <p id="fund-error" class="error-text" hidden style="margin:0"></p>
     </div>
@@ -188,22 +184,30 @@ function renderTemplate(
       <span id="events-status" class="badge" data-status="connecting">connecting…</span>
     </div>
 
-    <div id="dashboard" style="display:grid;grid-template-columns:1fr 2fr 1fr 1fr;gap:0.75rem;margin-bottom:1.5rem">
+    <div id="dashboard" style="display:grid;grid-template-columns:repeat(6,1fr);gap:0.75rem;margin-bottom:1.5rem">
       <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem">UTXOs</div>
-        <div id="utxos-list" style="display:flex;flex-direction:column;gap:0.25rem;max-height:18rem;overflow-y:auto"></div>
-      </div>
-      <div class="stat-card" style="padding:0.75rem;position:relative;overflow:hidden;min-height:8rem">
-        <div style="font-weight:600;margin-bottom:0.5rem">Verified</div>
-        <div id="verified-lane" style="position:relative;height:6rem"></div>
-      </div>
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem">Submitted</div>
-        <div id="submitted-list" style="display:flex;flex-direction:column;gap:0.25rem"></div>
+        <div style="font-weight:600;margin-bottom:0.5rem">Deposit</div>
+        <div id="deposit-list" class="dashboard-column"></div>
       </div>
       <div class="stat-card" style="padding:0.75rem">
         <div style="font-weight:600;margin-bottom:0.5rem">Mempool</div>
-        <div id="mempool-list" style="display:flex;flex-direction:column;gap:0.25rem"></div>
+        <div id="mempool-list" class="dashboard-column"></div>
+      </div>
+      <div class="stat-card" style="padding:0.75rem">
+        <div style="font-weight:600;margin-bottom:0.5rem">Submitted</div>
+        <div id="submitted-list" class="dashboard-column"></div>
+      </div>
+      <div class="stat-card" style="padding:0.75rem">
+        <div style="font-weight:600;margin-bottom:0.5rem">Verified</div>
+        <div id="verified-list" class="dashboard-column"></div>
+      </div>
+      <div class="stat-card" style="padding:0.75rem">
+        <div style="font-weight:600;margin-bottom:0.5rem">UTXOs</div>
+        <div id="utxos-list" class="dashboard-column"></div>
+      </div>
+      <div class="stat-card" style="padding:0.75rem">
+        <div style="font-weight:600;margin-bottom:0.5rem">Withdrawn</div>
+        <div id="withdrawn-list" class="dashboard-column"></div>
       </div>
     </div>
 
@@ -235,12 +239,14 @@ function renderCouncilCard(m: MembershipInfo): string {
 }
 
 function wireHeader(root: HTMLElement, pp: PpInfo): void {
-  const copyBtn = root.querySelector("#copy-pp-address") as HTMLButtonElement;
-  copyBtn?.addEventListener("click", () => {
-    navigator.clipboard.writeText(pp.publicKey).then(() =>
-      withBriefCopyFeedback(copyBtn)
-    );
-  });
+  for (const id of ["#copy-pp-address", "#copy-opex-address"]) {
+    const btn = root.querySelector(id) as HTMLButtonElement | null;
+    btn?.addEventListener("click", () => {
+      navigator.clipboard.writeText(pp.publicKey).then(() =>
+        withBriefCopyFeedback(btn)
+      );
+    });
+  }
 }
 
 function wireFund(root: HTMLElement, ppPublicKey: string): void {
@@ -298,6 +304,11 @@ type DashboardHandle = {
   setStatus: (status: "connecting" | "open" | "closed") => void;
 };
 
+type ClickContext =
+  | { kind: "tx"; txId: string }
+  | { kind: "utxo"; utxoId: string }
+  | { kind: "withdraw"; txId: string; bundleId: string; recipientAddress: string };
+
 function setupDashboard(
   root: HTMLElement,
   ppPublicKey: string,
@@ -305,34 +316,64 @@ function setupDashboard(
   initialUtxos: UtxoInfo[],
 ): DashboardHandle {
   const statusEl = root.querySelector("#events-status") as HTMLElement;
-  const utxosEl = root.querySelector("#utxos-list") as HTMLElement;
-  const verifiedEl = root.querySelector("#verified-lane") as HTMLElement;
-  const submittedEl = root.querySelector("#submitted-list") as HTMLElement;
+  const depositEl = root.querySelector("#deposit-list") as HTMLElement;
   const mempoolEl = root.querySelector("#mempool-list") as HTMLElement;
+  const submittedEl = root.querySelector("#submitted-list") as HTMLElement;
+  const verifiedEl = root.querySelector("#verified-list") as HTMLElement;
+  const utxosEl = root.querySelector("#utxos-list") as HTMLElement;
+  const withdrawnEl = root.querySelector("#withdrawn-list") as HTMLElement;
   const txDetailEl = root.querySelector("#tx-detail") as HTMLElement;
 
-  // Local state
   const utxos = new Map<string, UtxoInfo>(initialUtxos.map((u) => [u.id, u]));
   const mempool = new Map<string, HTMLElement>();
   const submitted = new Map<string, HTMLElement>();
+
+  function fadeInItem(el: HTMLElement): void {
+    requestAnimationFrame(() => el.classList.add("is-visible"));
+  }
+
+  function fadeOutAndRemove(el: HTMLElement | undefined): void {
+    if (!el) return;
+    el.classList.remove("is-visible");
+    setTimeout(() => el.remove(), ITEM_FADE_OUT_MS);
+  }
+
+  function makeItem(label: string, subLabel?: string): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "dashboard-item";
+    el.innerHTML = `<span class="mono" style="overflow:hidden;text-overflow:ellipsis">${
+      escapeHtml(label)
+    }</span>${
+      subLabel
+        ? `<span style="color:var(--text-muted);font-size:0.7rem">${escapeHtml(subLabel)}</span>`
+        : ""
+    }`;
+    return el;
+  }
+
+  function trimHistory(container: HTMLElement): void {
+    while (container.childElementCount > KEEP_LAST_HISTORICAL) {
+      container.firstElementChild?.remove();
+    }
+  }
 
   function renderUtxos(): void {
     utxosEl.textContent = "";
     if (utxos.size === 0) {
       utxosEl.innerHTML =
-        '<span style="color:var(--text-muted);font-size:0.85rem">No active UTXOs</span>';
+        '<span style="color:var(--text-muted);font-size:0.75rem">No active UTXOs</span>';
       return;
     }
     for (const u of utxos.values()) {
-      const row = document.createElement("div");
-      row.dataset.utxoId = u.id;
-      row.style.cssText =
-        "padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:4px;font-size:0.8rem;display:flex;justify-content:space-between";
-      row.innerHTML = `
-        <span class="mono" title="${escapeHtml(u.id)}">${escapeHtml(truncate(u.id))}</span>
-        <span>${fmtAmountStroops(u.amount)} XLM</span>
-      `;
-      utxosEl.appendChild(row);
+      const item = makeItem(truncate(u.id), `${fmtAmountStroops(u.amount)} XLM`);
+      item.title = u.id;
+      item.dataset.utxoId = u.id;
+      item.addEventListener(
+        "click",
+        () => showDetail({ kind: "utxo", utxoId: u.id }),
+      );
+      utxosEl.appendChild(item);
+      fadeInItem(item);
     }
   }
   renderUtxos();
@@ -347,53 +388,25 @@ function setupDashboard(
     } catch { /* best effort */ }
   }
 
-  function makeListItem(text: string, jurisdictionFlag?: string): HTMLElement {
-    const el = document.createElement("div");
-    el.style.cssText =
-      "padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:4px;font-size:0.8rem;opacity:0;transition:opacity 200ms;display:flex;justify-content:space-between;align-items:center;cursor:pointer";
-    el.innerHTML = `<span class="mono">${escapeHtml(text)}</span>${
-      jurisdictionFlag ? `<span style="font-size:1rem">${jurisdictionFlag}</span>` : ""
-    }`;
-    requestAnimationFrame(() => {
-      el.style.opacity = "1";
-    });
-    return el;
-  }
-
-  function fadeAndRemove(el: HTMLElement | undefined): void {
-    if (!el) return;
-    el.style.opacity = "0";
-    setTimeout(() => el.remove(), 200);
-  }
-
-  function pushVerifiedTx(txId: string, toJurisdiction?: string): void {
-    const el = document.createElement("div");
-    el.dataset.txId = txId;
-    const top = Math.floor(Math.random() * 70);
-    el.style.cssText =
-      `position:absolute;top:${top}%;right:0;padding:0.3rem 0.55rem;border:1px solid var(--border);border-radius:4px;font-size:0.75rem;background:var(--surface);cursor:pointer;animation:tx-drift ${VERIFIED_DRIFT_MS}ms linear forwards;display:flex;gap:0.4rem;align-items:center`;
-    el.innerHTML = `<span class="mono">${escapeHtml(truncate(txId))}</span>${
-      toJurisdiction ? `<span>${toJurisdiction}</span>` : ""
-    }`;
-    el.addEventListener("click", () => showTxDetail(txId));
-    el.addEventListener("animationend", () => el.remove());
-    verifiedEl.appendChild(el);
-  }
-
-  async function showTxDetail(txId: string): Promise<void> {
+  async function showDetail(ctx: ClickContext): Promise<void> {
     txDetailEl.style.display = "block";
     txDetailEl.innerHTML =
-      `<div style="color:var(--text-muted)">Loading tx ${escapeHtml(truncate(txId))}…</div>`;
-    let detail: TransactionDetail;
+      `<div style="color:var(--text-muted)">Loading…</div>`;
+    if (ctx.kind === "utxo") {
+      const u = utxos.get(ctx.utxoId);
+      txDetailEl.innerHTML = renderUtxoDetail(u, ctx.utxoId);
+      return;
+    }
     try {
-      detail = await getTransactionDetail(txId, ppPublicKey);
+      const detail = await getTransactionDetail(ctx.txId, ppPublicKey);
+      txDetailEl.innerHTML = ctx.kind === "withdraw"
+        ? renderWithdrawDetail(detail, ctx.recipientAddress)
+        : renderTxDetail(detail);
     } catch (err) {
       txDetailEl.innerHTML = `<p class="error-text">${
         escapeHtml(err instanceof Error ? err.message : String(err))
       }</p>`;
-      return;
     }
-    txDetailEl.innerHTML = renderTxDetail(detail);
   }
 
   return {
@@ -401,59 +414,99 @@ function setupDashboard(
       switch (event.kind) {
         case "mempool.bundle_added": {
           if (mempool.has(event.payload.bundleId)) return;
-          const item = makeListItem(truncate(event.payload.bundleId));
+          const item = makeItem(truncate(event.payload.bundleId));
           item.title = event.payload.bundleId;
           mempool.set(event.payload.bundleId, item);
           mempoolEl.appendChild(item);
+          fadeInItem(item);
           break;
         }
         case "mempool.bundle_expired": {
-          fadeAndRemove(mempool.get(event.payload.bundleId));
+          fadeOutAndRemove(mempool.get(event.payload.bundleId));
           mempool.delete(event.payload.bundleId);
           break;
         }
         case "executor.transaction_submitted": {
-          // Move bundles from mempool to submitted, keyed by txHash
           for (const bid of event.payload.bundleIds) {
-            fadeAndRemove(mempool.get(bid));
+            fadeOutAndRemove(mempool.get(bid));
             mempool.delete(bid);
           }
           if (submitted.has(event.payload.txHash)) return;
-          const item = makeListItem(truncate(event.payload.txHash));
+          const item = makeItem(truncate(event.payload.txHash));
           item.title = event.payload.txHash;
-          item.addEventListener("click", () => showTxDetail(event.payload.txHash));
+          item.addEventListener(
+            "click",
+            () => showDetail({ kind: "tx", txId: event.payload.txHash }),
+          );
           submitted.set(event.payload.txHash, item);
           submittedEl.appendChild(item);
+          fadeInItem(item);
           break;
         }
         case "executor.execution_failed": {
           for (const bid of event.payload.bundleIds) {
-            fadeAndRemove(mempool.get(bid));
+            fadeOutAndRemove(mempool.get(bid));
             mempool.delete(bid);
           }
           break;
         }
         case "verifier.bundle_completed": {
-          fadeAndRemove(submitted.get(event.payload.txId));
+          fadeOutAndRemove(submitted.get(event.payload.txId));
           submitted.delete(event.payload.txId);
-          pushVerifiedTx(event.payload.txId);
+          const item = makeItem(truncate(event.payload.txId));
+          item.title = event.payload.txId;
+          item.addEventListener(
+            "click",
+            () => showDetail({ kind: "tx", txId: event.payload.txId }),
+          );
+          verifiedEl.appendChild(item);
+          fadeInItem(item);
+          trimHistory(verifiedEl);
           refreshUtxos();
           break;
         }
         case "verifier.bundle_failed": {
-          fadeAndRemove(submitted.get(event.payload.txId));
+          fadeOutAndRemove(submitted.get(event.payload.txId));
           submitted.delete(event.payload.txId);
           break;
         }
         case "bundle.deposit_completed": {
-          // New UTXOs may have been created — refresh list.
+          const item = makeItem(
+            truncate(event.payload.depositorAddress, 8, 4),
+            `${fmtAmountStroops(event.payload.amount)} XLM`,
+          );
+          item.title = event.payload.depositorAddress;
+          const payload = event.payload;
+          item.addEventListener(
+            "click",
+            () => showDetail({ kind: "tx", txId: payload.txId }),
+          );
+          depositEl.appendChild(item);
+          fadeInItem(item);
+          trimHistory(depositEl);
           refreshUtxos();
           break;
         }
         case "bundle.withdraw_completed": {
-          // UTXO(s) just left the channel — refresh + briefly flash the row
-          // we don't know the exact id, but a refresh removes spent ones.
-          flashLastUtxoWithRecipient(event.payload.recipientAddress);
+          const item = makeItem(
+            truncate(event.payload.recipientAddress, 8, 4),
+            `${fmtAmountStroops(event.payload.amount)} XLM`,
+          );
+          item.title = event.payload.recipientAddress;
+          const payload = event.payload;
+          item.addEventListener(
+            "click",
+            () =>
+              showDetail({
+                kind: "withdraw",
+                txId: payload.txId,
+                bundleId: payload.bundleId,
+                recipientAddress: payload.recipientAddress,
+              }),
+          );
+          withdrawnEl.appendChild(item);
+          fadeInItem(item);
+          trimHistory(withdrawnEl);
           refreshUtxos();
           break;
         }
@@ -468,19 +521,6 @@ function setupDashboard(
         : "disconnected";
     },
   };
-
-  function flashLastUtxoWithRecipient(recipient: string): void {
-    // The on-screen UTXO list is about to refresh; before that, briefly show
-    // the recipient address on the rows that will go away. We don't know
-    // which exact UTXO without a follow-up fetch, so we mark all rows.
-    utxosEl.querySelectorAll("[data-utxo-id]").forEach((el) => {
-      const note = document.createElement("div");
-      note.style.cssText =
-        "font-size:0.7rem;color:var(--text-muted);margin-top:0.15rem";
-      note.innerHTML = `→ ${escapeHtml(truncate(recipient, ADDRESS_TRUNC, 4))}`;
-      (el as HTMLElement).appendChild(note);
-    });
-  }
 }
 
 function renderTxDetail(d: TransactionDetail): string {
@@ -553,6 +593,96 @@ function renderTxDetail(d: TransactionDetail): string {
     </div>
     <div style="margin-top:0.75rem">
       <span class="stat-label">UTXOs (${d.utxos.length})</span>
+      <ul style="font-size:0.8rem;margin:0.4rem 0 0;padding-left:1.2rem">${utxosHtml}</ul>
+    </div>
+  `;
+}
+
+function renderUtxoDetail(u: UtxoInfo | undefined, utxoId: string): string {
+  if (!u) {
+    return `
+      <div style="font-weight:600;margin-bottom:0.5rem">UTXO</div>
+      <p class="mono" style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">${
+      escapeHtml(utxoId)
+    }</p>
+      <p style="color:var(--text-muted)">No active record (it may have just been spent or withdrawn).</p>
+    `;
+  }
+  return `
+    <div style="font-weight:600;margin-bottom:0.5rem">UTXO</div>
+    <p class="mono" style="font-size:0.75rem;color:var(--text-muted);word-break:break-all;margin:0 0 0.75rem">${
+    escapeHtml(u.id)
+  }</p>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;font-size:0.85rem">
+      <div>
+        <span class="stat-label">Amount</span>
+        <div>${fmtAmountStroops(u.amount)} XLM</div>
+      </div>
+      <div>
+        <span class="stat-label">Created at bundle</span>
+        <div class="mono" style="font-size:0.75rem">${escapeHtml(truncate(u.createdAtBundleId))}</div>
+      </div>
+      <div>
+        <span class="stat-label">Created</span>
+        <div>${escapeHtml(new Date(u.createdAt).toLocaleString())}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderWithdrawDetail(d: TransactionDetail, recipient: string): string {
+  const totalStroops = d.withdraws.reduce(
+    (acc, w) => acc + BigInt(w.amount),
+    0n,
+  );
+  const utxos = d.utxos.filter((u) => u.spent);
+  const utxosHtml = utxos.length
+    ? utxos.map((u) =>
+      `<li><span class="mono" title="${escapeHtml(u.id)}">${escapeHtml(truncate(u.id))}</span> — ${fmtAmountStroops(u.amount)} XLM</li>`
+    ).join("")
+    : `<li style="color:var(--text-muted)">No UTXOs in tx record</li>`;
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+      <div style="font-weight:600">Withdraw</div>
+      <span class="badge badge-${d.status === "VERIFIED" ? "active" : "pending"}">${
+    escapeHtml(d.status)
+  }</span>
+    </div>
+    <p style="font-size:0.85rem;margin:0 0 0.75rem">
+      <span style="color:var(--text-muted)">Tx</span> <span class="mono">${
+    escapeHtml(truncate(d.id))
+  }</span>
+    </p>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;font-size:0.85rem">
+      <div>
+        <span class="stat-label">Recipient</span>
+        <div class="mono" style="font-size:0.75rem;word-break:break-all" title="${
+    escapeHtml(recipient)
+  }">${escapeHtml(truncate(recipient, 8, 6))}</div>
+      </div>
+      <div>
+        <span class="stat-label">Total withdrawn</span>
+        <div>${fmtAmountStroops(totalStroops.toString())} XLM</div>
+      </div>
+      <div>
+        <span class="stat-label">UTXOs spent</span>
+        <div>${utxos.length}</div>
+      </div>
+      <div>
+        <span class="stat-label">Submitted</span>
+        <div>${fmtTime(d.timeline.submittedAt)}</div>
+      </div>
+      <div>
+        <span class="stat-label">Verified</span>
+        <div>${fmtTime(d.timeline.verifiedAt)}</div>
+      </div>
+      <div>
+        <span class="stat-label">Ledger</span>
+        <div>${escapeHtml(d.ledgerSequence)}</div>
+      </div>
+    </div>
+    <div style="margin-top:0.75rem">
+      <span class="stat-label">Withdrawn UTXOs</span>
       <ul style="font-size:0.8rem;margin:0.4rem 0 0;padding-left:1.2rem">${utxosHtml}</ul>
     </div>
   `;
