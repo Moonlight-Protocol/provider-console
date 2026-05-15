@@ -41,9 +41,11 @@ const KIND_LABEL: Record<EventKind, string> = {
 function summarize(event: ProviderEvent): string {
   switch (event.kind) {
     case "mempool.bundle_added":
-      return `Bundle ${truncateId(event.payload.bundleId)} added (weight ${
-        event.payload.weight
-      }${event.payload.newSlot ? ", new slot" : ""})`;
+      return `Bundle ${
+        truncateId(event.payload.bundleId)
+      } added (weight ${event.payload.weight}${
+        event.payload.newSlot ? ", new slot" : ""
+      })`;
     case "mempool.bundle_expired":
       return `Bundle ${truncateId(event.payload.bundleId)} expired`;
     case "executor.transaction_submitted":
