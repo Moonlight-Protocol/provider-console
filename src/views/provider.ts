@@ -188,8 +188,8 @@ function renderTemplate(
         <button id="mode-live" class="mode-tab" data-active="true" disabled>Live</button>
         <button id="mode-range" class="mode-tab" data-active="false">Range</button>
       </div>
-      <label id="range-from-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">From <input id="range-from" type="datetime-local" style="font-size:0.8rem"></label>
-      <label id="range-to-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">To <input id="range-to" type="datetime-local" style="font-size:0.8rem"></label>
+      <label id="range-from-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">From <input id="range-from" type="date" style="font-size:0.8rem"></label>
+      <label id="range-to-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">To <input id="range-to" type="date" style="font-size:0.8rem"></label>
       <button id="range-search" class="btn-primary" style="display:none;padding:0.25rem 0.7rem;font-size:0.8rem">Search</button>
       <span id="range-status" style="font-size:0.75rem;color:var(--text-muted)"></span>
     </div>
@@ -221,7 +221,10 @@ function renderTemplate(
       </div>
     </div>
 
-    <div id="tx-detail" class="stat-card" style="padding:1rem;display:none"></div>
+    <div id="tx-detail" class="stat-card" style="padding:1rem;display:none;position:relative">
+      <button id="tx-detail-close" class="icon-btn" title="Close" style="position:absolute;top:0.5rem;right:0.5rem"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <div id="tx-detail-body"></div>
+    </div>
   `;
 }
 
@@ -354,6 +357,16 @@ function setupDashboard(
   const utxosEl = root.querySelector("#utxos-list") as HTMLElement;
   const withdrawnEl = root.querySelector("#withdrawn-list") as HTMLElement;
   const txDetailEl = root.querySelector("#tx-detail") as HTMLElement;
+  const txDetailBody = root.querySelector("#tx-detail-body") as HTMLElement;
+  const txDetailClose = root.querySelector(
+    "#tx-detail-close",
+  ) as HTMLButtonElement;
+
+  function hideTxDetail(): void {
+    txDetailEl.style.display = "none";
+    txDetailBody.innerHTML = "";
+  }
+  txDetailClose.addEventListener("click", hideTxDetail);
 
   const counts: Record<string, HTMLElement> = {
     deposit: root.querySelector("#deposit-count") as HTMLElement,
@@ -396,6 +409,7 @@ function setupDashboard(
     mempool.clear();
     submitted.clear();
     utxos.clear();
+    hideTxDetail();
     syncAllCounts();
   }
 
@@ -473,20 +487,20 @@ function setupDashboard(
 
   async function showDetail(ctx: ClickContext): Promise<void> {
     txDetailEl.style.display = "block";
-    txDetailEl.innerHTML =
+    txDetailBody.innerHTML =
       `<div style="color:var(--text-muted)">Loading…</div>`;
     if (ctx.kind === "utxo") {
       const u = utxos.get(ctx.utxoId);
-      txDetailEl.innerHTML = renderUtxoDetail(u, ctx.utxoId);
+      txDetailBody.innerHTML = renderUtxoDetail(u, ctx.utxoId);
       return;
     }
     try {
       const detail = await getTransactionDetail(ctx.txId, ppPublicKey);
-      txDetailEl.innerHTML = ctx.kind === "withdraw"
+      txDetailBody.innerHTML = ctx.kind === "withdraw"
         ? renderWithdrawDetail(detail, ctx.recipientAddress)
         : renderTxDetail(detail);
     } catch (err) {
-      txDetailEl.innerHTML = `<p class="error-text">${
+      txDetailBody.innerHTML = `<p class="error-text">${
         escapeHtml(err instanceof Error ? err.message : String(err))
       }</p>`;
     }
@@ -594,8 +608,10 @@ function setupDashboard(
     rangeStatusEl.textContent = "Loading…";
     clearAllColumns();
     try {
-      const fromIso = new Date(fromVal).toISOString();
-      const toIso = new Date(toVal).toISOString();
+      // date inputs return YYYY-MM-DD — anchor from to start-of-day local time,
+      // to to end-of-day local time, then convert to ISO.
+      const fromIso = new Date(`${fromVal}T00:00:00`).toISOString();
+      const toIso = new Date(`${toVal}T23:59:59.999`).toISOString();
       const { data, truncated } = await listTransactions({
         ppPublicKey,
         channelContractId,
