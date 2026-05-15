@@ -93,7 +93,6 @@ export function page(
       version: __APP_VERSION__,
       links: [
         { href: "#/", label: "Home" },
-        { href: "#/events", label: "Events" },
       ],
       address: addr,
       onLogout: logout,

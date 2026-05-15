@@ -7,9 +7,7 @@ import { OTEL_AUTH, OTEL_ENDPOINT } from "./lib/config.ts";
 
 import { loginView } from "./views/login.ts";
 import { homeView } from "./views/home.ts";
-import { ppManageView } from "./views/pp-manage.ts";
-import { dashboardView } from "./views/dashboard.ts";
-import { eventsView } from "./views/events.ts";
+import { providerView } from "./views/provider.ts";
 import { recoverView } from "./views/recover.ts";
 
 // Setup flow
@@ -24,12 +22,10 @@ initTracer({ endpoint: OTEL_ENDPOINT, auth: OTEL_AUTH });
 // Register routes
 route("/login", loginView);
 route("/home", homeView);
-route("/pp", ppManageView);
+route("/provider/:pk", providerView);
 route("/setup/metadata", metadataView);
 route("/setup/fund", fundView);
 route("/setup/join", joinView);
-route("/dashboard", dashboardView);
-route("/events", eventsView);
 route("/recover", recoverView);
 
 // Root — redirect based on auth state

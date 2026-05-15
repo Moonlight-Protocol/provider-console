@@ -36,6 +36,7 @@ function getCSP(): string {
   // In development, allow connections to local services
   if (environment !== "production") {
     connectSrc.push("http://localhost:*");
+    connectSrc.push("ws://localhost:*");
     // Required by version-check.ts which fetches latest release info from GitHub in dev mode.
     connectSrc.push("https://api.github.com");
     // Docker Compose: allow connections to service hostnames (e.g. http://provider:3000)
