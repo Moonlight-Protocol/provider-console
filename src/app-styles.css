@@ -220,7 +220,8 @@ th {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  max-height: 16rem;
+  min-height: 22rem;
+  max-height: 28rem;
   overflow-y: auto;
 }
 

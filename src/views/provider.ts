@@ -23,7 +23,7 @@ import { API_BASE_URL } from "../lib/config.ts";
 
 const ITEM_FADE_OUT_MS = 300;
 const KEEP_LAST_HISTORICAL = 30;
-const LIVE_ITEM_LIFETIME_MS = 60_000;
+const LIVE_ITEM_LIFETIME_MS = 30_000;
 
 function truncate(s: string, head = 6, tail = 4): string {
   return s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s;
@@ -112,19 +112,10 @@ async function renderContent(): Promise<HTMLElement> {
   const memberships = pp.councilMemberships;
   const primaryChannelId = pickPrimaryChannel(memberships);
 
-  const [treasuryRes, utxosRes] = await Promise.allSettled([
-    getTreasury(ppPublicKey),
-    primaryChannelId
-      ? getUtxos(ppPublicKey, primaryChannelId)
-      : Promise.resolve([] as UtxoInfo[]),
-  ]);
-
-  const treasury: TreasuryData | null = treasuryRes.status === "fulfilled"
-    ? treasuryRes.value
-    : null;
-  const initialUtxos: UtxoInfo[] = utxosRes.status === "fulfilled"
-    ? utxosRes.value
-    : [];
+  let treasury: TreasuryData | null = null;
+  try {
+    treasury = await getTreasury(ppPublicKey);
+  } catch { /* best effort */ }
 
   const xlm = treasury?.balances.find((b) => b.asset_type === "native");
   const opexBalance = xlm ? `${parseFloat(xlm.balance).toFixed(2)} XLM` : "—";
@@ -136,7 +127,7 @@ async function renderContent(): Promise<HTMLElement> {
   wireFund(root, pp.publicKey);
   wireCouncils(root);
 
-  const dashboard = setupDashboard(root, ppPublicKey, primaryChannelId, initialUtxos);
+  const dashboard = setupDashboard(root, ppPublicKey, primaryChannelId);
 
   // Live events
   const client = new EventsClient({
@@ -194,7 +185,7 @@ function renderTemplate(
       <span id="range-status" style="font-size:0.75rem;color:var(--text-muted)"></span>
     </div>
 
-    <div id="dashboard" style="display:grid;grid-template-columns:repeat(6,1fr);gap:0.75rem;margin-bottom:1.5rem">
+    <div id="dashboard" style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.75rem;margin-bottom:1.5rem">
       <div class="stat-card" style="padding:0.75rem">
         <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Deposit</span><span id="deposit-count" class="badge" style="font-weight:normal">0</span></div>
         <div id="deposit-list" class="dashboard-column"></div>
@@ -210,10 +201,6 @@ function renderTemplate(
       <div class="stat-card" style="padding:0.75rem">
         <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Verified</span><span id="verified-count" class="badge" style="font-weight:normal">0</span></div>
         <div id="verified-list" class="dashboard-column"></div>
-      </div>
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>UTXOs</span><span id="utxos-count" class="badge" style="font-weight:normal">0</span></div>
-        <div id="utxos-list" class="dashboard-column"></div>
       </div>
       <div class="stat-card" style="padding:0.75rem">
         <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Withdrawn</span><span id="withdrawn-count" class="badge" style="font-weight:normal">0</span></div>
@@ -340,7 +327,6 @@ function setupDashboard(
   root: HTMLElement,
   ppPublicKey: string,
   channelContractId: string | null,
-  initialUtxos: UtxoInfo[],
 ): DashboardHandle {
   const liveBtn = root.querySelector("#mode-live") as HTMLButtonElement;
   const rangeBtn = root.querySelector("#mode-range") as HTMLButtonElement;
@@ -354,7 +340,6 @@ function setupDashboard(
   const mempoolEl = root.querySelector("#mempool-list") as HTMLElement;
   const submittedEl = root.querySelector("#submitted-list") as HTMLElement;
   const verifiedEl = root.querySelector("#verified-list") as HTMLElement;
-  const utxosEl = root.querySelector("#utxos-list") as HTMLElement;
   const withdrawnEl = root.querySelector("#withdrawn-list") as HTMLElement;
   const txDetailEl = root.querySelector("#tx-detail") as HTMLElement;
   const txDetailBody = root.querySelector("#tx-detail-body") as HTMLElement;
@@ -373,7 +358,6 @@ function setupDashboard(
     mempool: root.querySelector("#mempool-count") as HTMLElement,
     submitted: root.querySelector("#submitted-count") as HTMLElement,
     verified: root.querySelector("#verified-count") as HTMLElement,
-    utxos: root.querySelector("#utxos-count") as HTMLElement,
     withdrawn: root.querySelector("#withdrawn-count") as HTMLElement,
   };
   function syncCount(key: keyof typeof counts, container: HTMLElement): void {
@@ -384,17 +368,18 @@ function setupDashboard(
     syncCount("mempool", mempoolEl);
     syncCount("submitted", submittedEl);
     syncCount("verified", verifiedEl);
-    syncCount("utxos", utxosEl);
     syncCount("withdrawn", withdrawnEl);
   }
 
   let mode: DashboardMode = "live";
   let wsStatus: "connecting" | "open" | "closed" = "connecting";
 
-  const utxos = new Map<string, UtxoInfo>(initialUtxos.map((u) => [u.id, u]));
-
   function fadeInItem(el: HTMLElement): void {
-    requestAnimationFrame(() => el.classList.add("is-visible"));
+    // Double rAF: forces the browser to paint the initial opacity:0 state
+    // before adding is-visible, so the transition actually runs.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => el.classList.add("is-visible"));
+    });
     if (mode === "live") {
       setTimeout(() => {
         console.debug(
@@ -408,9 +393,8 @@ function setupDashboard(
 
   function clearAllColumns(): void {
     for (
-      const el of [depositEl, mempoolEl, submittedEl, verifiedEl, utxosEl, withdrawnEl]
+      const el of [depositEl, mempoolEl, submittedEl, verifiedEl, withdrawnEl]
     ) el.textContent = "";
-    utxos.clear();
     hideTxDetail();
     syncAllCounts();
   }
@@ -454,61 +438,14 @@ function setupDashboard(
     }
   }
 
-  function renderUtxos(): void {
-    utxosEl.textContent = "";
-    if (utxos.size === 0) {
-      utxosEl.innerHTML =
-        '<span style="color:var(--text-muted);font-size:0.75rem">No active UTXOs</span>';
-      return;
-    }
-    for (const u of utxos.values()) {
-      const item = makeItem(truncate(u.id), `${fmtAmountStroops(u.amount)} XLM`);
-      item.title = u.id;
-      item.dataset.utxoId = u.id;
-      item.addEventListener(
-        "click",
-        () => showDetail({ kind: "utxo", utxoId: u.id }),
-      );
-      utxosEl.appendChild(item);
-      fadeInItem(item);
-    }
-    syncCount("utxos", utxosEl);
-  }
-  renderUtxos();
   syncAllCounts();
-
-  async function appendUtxosFromTx(txId: string): Promise<void> {
-    try {
-      const detail = await getTransactionDetail(txId, ppPublicKey);
-      for (const u of detail.utxos) {
-        if (u.spent) continue;
-        utxos.set(u.id, {
-          id: u.id,
-          amount: u.amount,
-          createdAtBundleId: u.createdAtBundleId,
-          createdAt: new Date().toISOString(),
-        });
-        const item = makeItem(truncate(u.id), `${fmtAmountStroops(u.amount)} XLM`);
-        item.title = u.id;
-        item.dataset.utxoId = u.id;
-        item.addEventListener(
-          "click",
-          () => showDetail({ kind: "utxo", utxoId: u.id }),
-        );
-        utxosEl.appendChild(item);
-        fadeInItem(item);
-      }
-      syncCount("utxos", utxosEl);
-    } catch { /* best effort */ }
-  }
 
   async function showDetail(ctx: ClickContext): Promise<void> {
     txDetailEl.style.display = "block";
     txDetailBody.innerHTML =
       `<div style="color:var(--text-muted)">Loading…</div>`;
     if (ctx.kind === "utxo") {
-      const u = utxos.get(ctx.utxoId);
-      txDetailBody.innerHTML = renderUtxoDetail(u, ctx.utxoId);
+      txDetailBody.innerHTML = renderUtxoDetail(undefined, ctx.utxoId);
       return;
     }
     try {
@@ -525,55 +462,54 @@ function setupDashboard(
 
   function classifyTxIntoColumns(tx: TransactionDetail): void {
     const verified = tx.status === "VERIFIED";
-    // Deposit column — one item per deposit operation
-    for (const dep of tx.deposits) {
-      const item = makeItem(
-        truncate(dep.depositorAddress, 8, 4),
-        `${fmtAmountStroops(dep.amount)} XLM`,
-      );
-      item.title = dep.depositorAddress;
+    const isDeposit = tx.deposits.length > 0;
+    const isWithdraw = tx.withdraws.length > 0;
+
+    if (!verified) {
+      // Tx never finalized — surface it under Submitted (its latest state).
+      const item = makeItem(truncate(tx.id));
+      item.title = tx.id;
       item.addEventListener(
         "click",
         () => showDetail({ kind: "tx", txId: tx.id }),
       );
-      depositEl.appendChild(item);
+      submittedEl.appendChild(item);
       fadeInItem(item);
-    }
-    // Withdraw column — one item per withdraw operation
-    for (const w of tx.withdraws) {
-      const item = makeItem(
-        truncate(w.recipientAddress, 8, 4),
-        `${fmtAmountStroops(w.amount)} XLM`,
-      );
-      item.title = w.recipientAddress;
-      item.addEventListener("click", () =>
-        showDetail({
-          kind: "withdraw",
-          txId: tx.id,
-          bundleId: tx.bundles[0]?.id ?? "",
-          recipientAddress: w.recipientAddress,
-        }));
-      withdrawnEl.appendChild(item);
-      fadeInItem(item);
-    }
-    // Mempool — one item per bundle (each bundle was once in mempool)
-    for (const b of tx.bundles) {
-      const item = makeItem(truncate(b.id));
-      item.title = b.id;
-      mempoolEl.appendChild(item);
-      fadeInItem(item);
-    }
-    // Submitted — one entry per tx (tx was submitted to network)
-    const submittedItem = makeItem(truncate(tx.id));
-    submittedItem.title = tx.id;
-    submittedItem.addEventListener(
-      "click",
-      () => showDetail({ kind: "tx", txId: tx.id }),
-    );
-    submittedEl.appendChild(submittedItem);
-    fadeInItem(submittedItem);
-    // Verified — only if final status is VERIFIED
-    if (verified) {
+    } else if (isDeposit) {
+      // Deposit txs land only in the Deposit column — one item per deposit op.
+      for (const dep of tx.deposits) {
+        const item = makeItem(
+          truncate(dep.depositorAddress, 8, 4),
+          `${fmtAmountStroops(dep.amount)} XLM`,
+        );
+        item.title = dep.depositorAddress;
+        item.addEventListener(
+          "click",
+          () => showDetail({ kind: "tx", txId: tx.id }),
+        );
+        depositEl.appendChild(item);
+        fadeInItem(item);
+      }
+    } else if (isWithdraw) {
+      // Withdraw txs land only in the Withdrawn column — one per withdraw op.
+      for (const w of tx.withdraws) {
+        const item = makeItem(
+          truncate(w.recipientAddress, 8, 4),
+          `${fmtAmountStroops(w.amount)} XLM`,
+        );
+        item.title = w.recipientAddress;
+        item.addEventListener("click", () =>
+          showDetail({
+            kind: "withdraw",
+            txId: tx.id,
+            bundleId: tx.bundles[0]?.id ?? "",
+            recipientAddress: w.recipientAddress,
+          }));
+        withdrawnEl.appendChild(item);
+        fadeInItem(item);
+      }
+    } else {
+      // Regular verified send — Verified column only.
       const item = makeItem(truncate(tx.id));
       item.title = tx.id;
       item.addEventListener(
@@ -581,17 +517,6 @@ function setupDashboard(
         () => showDetail({ kind: "tx", txId: tx.id }),
       );
       verifiedEl.appendChild(item);
-      fadeInItem(item);
-    }
-    // UTXOs — one item per UTXO this tx created
-    for (const u of tx.utxos) {
-      const item = makeItem(truncate(u.id), `${fmtAmountStroops(u.amount)} XLM`);
-      item.title = u.id;
-      item.addEventListener(
-        "click",
-        () => showDetail({ kind: "utxo", utxoId: u.id }),
-      );
-      utxosEl.appendChild(item);
       fadeInItem(item);
     }
   }
@@ -710,7 +635,6 @@ function setupDashboard(
           verifiedEl.appendChild(item);
           fadeInItem(item);
           trimHistory(verifiedEl);
-          appendUtxosFromTx(event.payload.txId);
           break;
         }
         case "verifier.bundle_failed": {
@@ -853,7 +777,6 @@ function renderUtxoDetail(u: UtxoInfo | undefined, utxoId: string): string {
       <p class="mono" style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">${
       escapeHtml(utxoId)
     }</p>
-      <p style="color:var(--text-muted)">No active record (it may have just been spent or withdrawn).</p>
     `;
   }
   return `
