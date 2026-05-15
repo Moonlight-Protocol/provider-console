@@ -382,3 +382,21 @@ export async function getTransactionDetail(
   const { data } = await res.json();
   return data;
 }
+
+export async function listTransactions(opts: {
+  ppPublicKey: string;
+  channelContractId: string;
+  fromIso: string;
+  toIso: string;
+}): Promise<{ data: TransactionDetail[]; truncated: boolean }> {
+  const qs = new URLSearchParams({
+    ppPublicKey: opts.ppPublicKey,
+    channelContractId: opts.channelContractId,
+    fromIso: opts.fromIso,
+    toIso: opts.toIso,
+  });
+  const res = await platformFetch(`/dashboard/transactions?${qs}`);
+  if (!res.ok) throw new Error("Failed to list transactions");
+  const body = await res.json();
+  return { data: body.data, truncated: !!body.truncated };
+}

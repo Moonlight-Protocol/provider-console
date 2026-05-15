@@ -5,6 +5,7 @@ import {
   getTreasury,
   getUtxos,
   listPps,
+  listTransactions,
   type MembershipInfo,
   type PpInfo,
   type TransactionDetail,
@@ -22,6 +23,7 @@ import { API_BASE_URL } from "../lib/config.ts";
 
 const ITEM_FADE_OUT_MS = 300;
 const KEEP_LAST_HISTORICAL = 30;
+const LIVE_ITEM_LIFETIME_MS = 60_000;
 
 function truncate(s: string, head = 6, tail = 4): string {
   return s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s;
@@ -180,9 +182,16 @@ function renderTemplate(
     <h3 style="margin:0 0 0.5rem">Councils</h3>
     <div id="councils" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin-bottom:2rem">${councilCards}</div>
 
-    <div style="display:flex;align-items:baseline;gap:0.75rem;margin-bottom:0.5rem">
-      <h3 style="margin:0">Dashboard</h3>
-      <span id="events-status" class="badge" data-status="connecting">connecting…</span>
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;flex-wrap:wrap">
+      <h3 style="margin:0;margin-right:0.5rem">Dashboard</h3>
+      <div role="tablist" style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+        <button id="mode-live" class="mode-tab" data-active="true" disabled>Live</button>
+        <button id="mode-range" class="mode-tab" data-active="false">Range</button>
+      </div>
+      <label id="range-from-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">From <input id="range-from" type="datetime-local" style="font-size:0.8rem"></label>
+      <label id="range-to-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">To <input id="range-to" type="datetime-local" style="font-size:0.8rem"></label>
+      <button id="range-search" class="btn-primary" style="display:none;padding:0.25rem 0.7rem;font-size:0.8rem">Search</button>
+      <span id="range-status" style="font-size:0.75rem;color:var(--text-muted)"></span>
     </div>
 
     <div id="dashboard" style="display:grid;grid-template-columns:repeat(6,1fr);gap:0.75rem;margin-bottom:1.5rem">
@@ -309,9 +318,14 @@ function wireCouncils(root: HTMLElement): void {
   });
 }
 
+type DashboardMode = "live" | "range";
+
 type DashboardHandle = {
   handleEvent: (event: ProviderEvent) => void;
   setStatus: (status: "connecting" | "open" | "closed") => void;
+  setMode: (mode: DashboardMode) => void;
+  loadRange: (txs: TransactionDetail[]) => void;
+  getMode: () => DashboardMode;
 };
 
 type ClickContext =
@@ -325,7 +339,14 @@ function setupDashboard(
   channelContractId: string | null,
   initialUtxos: UtxoInfo[],
 ): DashboardHandle {
-  const statusEl = root.querySelector("#events-status") as HTMLElement;
+  const liveBtn = root.querySelector("#mode-live") as HTMLButtonElement;
+  const rangeBtn = root.querySelector("#mode-range") as HTMLButtonElement;
+  const fromInput = root.querySelector("#range-from") as HTMLInputElement;
+  const toInput = root.querySelector("#range-to") as HTMLInputElement;
+  const fromWrap = root.querySelector("#range-from-wrap") as HTMLElement;
+  const toWrap = root.querySelector("#range-to-wrap") as HTMLElement;
+  const searchBtn = root.querySelector("#range-search") as HTMLButtonElement;
+  const rangeStatusEl = root.querySelector("#range-status") as HTMLElement;
   const depositEl = root.querySelector("#deposit-list") as HTMLElement;
   const mempoolEl = root.querySelector("#mempool-list") as HTMLElement;
   const submittedEl = root.querySelector("#submitted-list") as HTMLElement;
@@ -354,12 +375,39 @@ function setupDashboard(
     syncCount("withdrawn", withdrawnEl);
   }
 
+  let mode: DashboardMode = "live";
+  let wsStatus: "connecting" | "open" | "closed" = "connecting";
+
   const utxos = new Map<string, UtxoInfo>(initialUtxos.map((u) => [u.id, u]));
   const mempool = new Map<string, HTMLElement>();
   const submitted = new Map<string, HTMLElement>();
 
   function fadeInItem(el: HTMLElement): void {
     requestAnimationFrame(() => el.classList.add("is-visible"));
+    if (mode === "live") {
+      setTimeout(() => fadeOutAndRemove(el), LIVE_ITEM_LIFETIME_MS);
+    }
+  }
+
+  function clearAllColumns(): void {
+    for (
+      const el of [depositEl, mempoolEl, submittedEl, verifiedEl, utxosEl, withdrawnEl]
+    ) el.textContent = "";
+    mempool.clear();
+    submitted.clear();
+    utxos.clear();
+    syncAllCounts();
+  }
+
+  function updateModeUi(): void {
+    liveBtn.dataset.active = mode === "live" ? "true" : "false";
+    rangeBtn.dataset.active = mode === "range" ? "true" : "false";
+    const showRangeControls = mode === "range";
+    fromWrap.style.display = showRangeControls ? "inline-flex" : "none";
+    toWrap.style.display = showRangeControls ? "inline-flex" : "none";
+    searchBtn.style.display = showRangeControls ? "inline-block" : "none";
+    liveBtn.disabled = wsStatus !== "open";
+    rangeStatusEl.textContent = "";
   }
 
   function fadeOutAndRemove(el: HTMLElement | undefined): void {
@@ -444,8 +492,149 @@ function setupDashboard(
     }
   }
 
+  function classifyTxIntoColumns(tx: TransactionDetail): void {
+    const verified = tx.status === "VERIFIED";
+    // Deposit column — one item per deposit operation
+    for (const dep of tx.deposits) {
+      const item = makeItem(
+        truncate(dep.depositorAddress, 8, 4),
+        `${fmtAmountStroops(dep.amount)} XLM`,
+      );
+      item.title = dep.depositorAddress;
+      item.addEventListener(
+        "click",
+        () => showDetail({ kind: "tx", txId: tx.id }),
+      );
+      depositEl.appendChild(item);
+      fadeInItem(item);
+    }
+    // Withdraw column — one item per withdraw operation
+    for (const w of tx.withdraws) {
+      const item = makeItem(
+        truncate(w.recipientAddress, 8, 4),
+        `${fmtAmountStroops(w.amount)} XLM`,
+      );
+      item.title = w.recipientAddress;
+      item.addEventListener("click", () =>
+        showDetail({
+          kind: "withdraw",
+          txId: tx.id,
+          bundleId: tx.bundles[0]?.id ?? "",
+          recipientAddress: w.recipientAddress,
+        }));
+      withdrawnEl.appendChild(item);
+      fadeInItem(item);
+    }
+    // Mempool — one item per bundle (each bundle was once in mempool)
+    for (const b of tx.bundles) {
+      const item = makeItem(truncate(b.id));
+      item.title = b.id;
+      mempoolEl.appendChild(item);
+      fadeInItem(item);
+    }
+    // Submitted — one entry per tx (tx was submitted to network)
+    const submittedItem = makeItem(truncate(tx.id));
+    submittedItem.title = tx.id;
+    submittedItem.addEventListener(
+      "click",
+      () => showDetail({ kind: "tx", txId: tx.id }),
+    );
+    submittedEl.appendChild(submittedItem);
+    fadeInItem(submittedItem);
+    // Verified — only if final status is VERIFIED
+    if (verified) {
+      const item = makeItem(truncate(tx.id));
+      item.title = tx.id;
+      item.addEventListener(
+        "click",
+        () => showDetail({ kind: "tx", txId: tx.id }),
+      );
+      verifiedEl.appendChild(item);
+      fadeInItem(item);
+    }
+    // UTXOs — one item per UTXO this tx created
+    for (const u of tx.utxos) {
+      const item = makeItem(truncate(u.id), `${fmtAmountStroops(u.amount)} XLM`);
+      item.title = u.id;
+      item.addEventListener(
+        "click",
+        () => showDetail({ kind: "utxo", utxoId: u.id }),
+      );
+      utxosEl.appendChild(item);
+      fadeInItem(item);
+    }
+  }
+
+  // Mode-bar wiring
+  liveBtn.addEventListener("click", () => {
+    if (mode === "live" || liveBtn.disabled) return;
+    mode = "live";
+    clearAllColumns();
+    updateModeUi();
+  });
+  rangeBtn.addEventListener("click", () => {
+    if (mode === "range") return;
+    mode = "range";
+    clearAllColumns();
+    updateModeUi();
+  });
+  searchBtn.addEventListener("click", async () => {
+    if (mode !== "range") return;
+    if (!channelContractId) {
+      rangeStatusEl.textContent = "No channel — join a council first.";
+      return;
+    }
+    const fromVal = fromInput.value;
+    const toVal = toInput.value;
+    if (!fromVal || !toVal) {
+      rangeStatusEl.textContent = "Pick from + to first.";
+      return;
+    }
+    searchBtn.disabled = true;
+    rangeStatusEl.textContent = "Loading…";
+    clearAllColumns();
+    try {
+      const fromIso = new Date(fromVal).toISOString();
+      const toIso = new Date(toVal).toISOString();
+      const { data, truncated } = await listTransactions({
+        ppPublicKey,
+        channelContractId,
+        fromIso,
+        toIso,
+      });
+      for (const tx of data) classifyTxIntoColumns(tx);
+      syncAllCounts();
+      rangeStatusEl.textContent = `${data.length} tx${
+        truncated ? " (truncated)" : ""
+      }`;
+    } catch (err) {
+      rangeStatusEl.textContent = err instanceof Error
+        ? err.message
+        : String(err);
+    } finally {
+      searchBtn.disabled = false;
+    }
+  });
+
   return {
+    getMode() {
+      return mode;
+    },
+    setMode(next) {
+      if (next === mode) return;
+      mode = next;
+      clearAllColumns();
+      updateModeUi();
+    },
+    loadRange(txs) {
+      mode = "range";
+      clearAllColumns();
+      for (const tx of txs) classifyTxIntoColumns(tx);
+      updateModeUi();
+      syncAllCounts();
+    },
     handleEvent(event) {
+      if (mode !== "live") return;
       console.debug("[dashboard] event received", event.kind, event.payload);
       switch (event.kind) {
         case "mempool.bundle_added": {
@@ -550,12 +739,14 @@ function setupDashboard(
       syncAllCounts();
     },
     setStatus(status) {
-      statusEl.dataset.status = status;
-      statusEl.textContent = status === "open"
-        ? "connected"
-        : status === "connecting"
-        ? "connecting…"
-        : "disconnected";
+      wsStatus = status;
+      if (status !== "open" && mode === "live") {
+        // WS not available — force Range mode (empty) so the user has a path
+        // to query historical data.
+        mode = "range";
+        clearAllColumns();
+      }
+      updateModeUi();
     },
   };
 }

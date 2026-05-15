@@ -241,3 +241,21 @@ th {
 .dashboard-item.is-visible {
   opacity: 1;
 }
+
+/* Live/Range mode tabs */
+.mode-tab {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0.2rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.mode-tab[data-active="true"] {
+  background: var(--primary);
+  color: white;
+}
+.mode-tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
