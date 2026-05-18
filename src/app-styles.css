@@ -260,3 +260,23 @@ th {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* Topology MY-PP action chips (Fund / Copy PK / Copy URL) */
+.topology-action-chip {
+  border: 1px solid #1a1a1a;
+  background: rgba(255, 255, 255, 0.6);
+  color: #1a1a1a;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1;
+}
+.topology-action-chip:hover {
+  background: #fff;
+}
+.topology-action-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

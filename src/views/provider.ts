@@ -1,6 +1,7 @@
 import { page } from "../components/page.ts";
 import { escapeHtml } from "../lib/dom.ts";
 import {
+  discoverCouncil,
   getTransactionDetail,
   getTreasury,
   listPps,
@@ -119,11 +120,36 @@ async function renderContent(): Promise<HTMLElement> {
   const opexBalance = xlm ? `${parseFloat(xlm.balance).toFixed(2)} XLM` : "—";
   const name = pp.label || truncate(pp.publicKey);
 
-  root.innerHTML = renderTemplate(pp, name, opexBalance, memberships);
+  // Sibling-PP lists per council: one POST /dashboard/council/discover per
+  // membership, in parallel, cached in-memory for the view's lifetime. Best-
+  // effort — failures render the council node with no sibling dots rather than
+  // blocking the whole view.
+  const siblingsByCouncil = new Map<
+    string,
+    Array<{ publicKey: string; label: string | null }>
+  >();
+  const discoveryResults = await Promise.allSettled(
+    memberships.map(async (m) => {
+      const info = await discoverCouncil(m.councilUrl);
+      return { councilUrl: m.councilUrl, providers: info.providers };
+    }),
+  );
+  for (const r of discoveryResults) {
+    if (r.status === "fulfilled") {
+      siblingsByCouncil.set(r.value.councilUrl, r.value.providers);
+    }
+  }
 
-  wireHeader(root, pp);
+  root.innerHTML = renderTemplate(
+    pp,
+    name,
+    opexBalance,
+    memberships,
+    siblingsByCouncil,
+  );
+
+  wireMyPpActions(root, pp);
   wireFund(root, pp.publicKey);
-  wireCouncils(root);
 
   const dashboard = setupDashboard(root, ppPublicKey, primaryChannelId);
 
@@ -139,106 +165,260 @@ async function renderContent(): Promise<HTMLElement> {
   return root;
 }
 
+// Topology layout — fixed-size SVG canvas with absolutely-positioned HTML
+// nodes for the MY-PP center + each council. Edges live in the SVG layer
+// underneath. Sized to roughly match the sketch (~850×470).
+const TOPOLOGY_WIDTH = 850;
+const TOPOLOGY_HEIGHT = 470;
+const TOPOLOGY_CENTER_X = TOPOLOGY_WIDTH / 2;
+const TOPOLOGY_CENTER_Y = TOPOLOGY_HEIGHT / 2;
+const COUNCIL_RING_RADIUS = 180;
+const SIBLING_DOTS_VISIBLE = 10;
+
+function councilNodePosition(
+  index: number,
+  total: number,
+): { x: number; y: number } {
+  // Start at the top (theta = -π/2) and walk clockwise so the visual matches
+  // a clock face.
+  const theta = -Math.PI / 2 + (2 * Math.PI * index) / Math.max(total, 1);
+  return {
+    x: TOPOLOGY_CENTER_X + COUNCIL_RING_RADIUS * Math.cos(theta),
+    y: TOPOLOGY_CENTER_Y + COUNCIL_RING_RADIUS * Math.sin(theta),
+  };
+}
+
+function renderTopology(
+  name: string,
+  opexBalance: string,
+  memberships: MembershipInfo[],
+  siblingsByCouncil: Map<
+    string,
+    Array<{ publicKey: string; label: string | null }>
+  >,
+): string {
+  const positions = memberships.map((_, i) =>
+    councilNodePosition(i, memberships.length)
+  );
+
+  const edges = positions
+    .map(
+      (p) =>
+        `<line x1="${TOPOLOGY_CENTER_X}" y1="${TOPOLOGY_CENTER_Y}" x2="${p.x}" y2="${p.y}" stroke="var(--border)" stroke-width="2" />`,
+    )
+    .join("");
+
+  const councilNodes = memberships
+    .map((m, i) => renderCouncilNode(m, positions[i], siblingsByCouncil))
+    .join("");
+
+  const emptyState = memberships.length === 0
+    ? `<div class="topology-empty" style="position:absolute;left:50%;top:80%;transform:translate(-50%,-50%);color:var(--text-muted);font-size:0.85rem;text-align:center">No council memberships yet — join a council to see it here.</div>`
+    : "";
+
+  return `
+    <div id="topology" class="topology" style="position:relative;width:${TOPOLOGY_WIDTH}px;height:${TOPOLOGY_HEIGHT}px;margin:0 auto">
+      <svg viewBox="0 0 ${TOPOLOGY_WIDTH} ${TOPOLOGY_HEIGHT}" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">${edges}</svg>
+      ${renderMyPpNode(name, opexBalance)}
+      ${councilNodes}
+      ${emptyState}
+    </div>
+  `;
+}
+
+function renderMyPpNode(name: string, opexBalance: string): string {
+  // Yellow ellipse per sketch §Zone 2. Absorbs OpEx Balance + Fund / Copy-PK
+  // / Copy-URL action chips (the v1 header actions, plural per sketch).
+  return `
+    <div class="topology-my-pp" style="position:absolute;left:${TOPOLOGY_CENTER_X}px;top:${TOPOLOGY_CENTER_Y}px;transform:translate(-50%,-50%);width:200px;background:#fff3bf;color:#1a1a1a;border:3px solid #1a1a1a;border-radius:50%/35%;padding:0.9rem 1.1rem;display:flex;flex-direction:column;align-items:center;gap:0.4rem;text-align:center">
+      <div style="font-weight:700;font-size:0.95rem;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${
+    escapeHtml(name)
+  }">${escapeHtml(name)}</div>
+      <div style="font-size:0.7rem;letter-spacing:0.05em;text-transform:uppercase;color:#555">OpEx Balance</div>
+      <div style="font-weight:600;font-size:1.05rem">${
+    escapeHtml(opexBalance)
+  }</div>
+      <p id="fund-error" class="error-text" hidden style="margin:0;font-size:0.75rem;max-width:100%"></p>
+      <div style="display:flex;gap:0.35rem;flex-wrap:wrap;justify-content:center;margin-top:0.15rem">
+        <button id="fund-btn" class="topology-action-chip" type="button">Fund</button>
+        <button id="copy-opex-address" class="topology-action-chip" type="button">Copy PK</button>
+        <button id="copy-provider-url" class="topology-action-chip" type="button">Copy URL</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderCouncilNode(
+  m: MembershipInfo,
+  pos: { x: number; y: number },
+  siblingsByCouncil: Map<
+    string,
+    Array<{ publicKey: string; label: string | null }>
+  >,
+): string {
+  const merged = mergedJurisdictions(m);
+  const flagsHtml = merged.length ? flags(merged) : "";
+  const assetCount = m.channels.length;
+  // PR-B renders every council node in the "idle" (gray) palette per the
+  // sketch. The green/amber palette comes alive when pulses land — there's
+  // no per-council activity feed in any current endpoint to colorize on.
+  const fill = "#e9ecef";
+  const stroke = "#868e96";
+
+  const siblings = siblingsByCouncil.get(m.councilUrl) ?? [];
+  const siblingDots = renderSiblingDots(siblings);
+  const siblingCaption = siblings.length === 0
+    ? "— no sibling PPs yet —"
+    : `(${siblings.length} sibling PP${siblings.length === 1 ? "" : "s"})`;
+
+  return `
+    <div class="topology-council-node" style="position:absolute;left:${pos.x}px;top:${pos.y}px;transform:translate(-50%,-50%);width:170px;background:${fill};border:2px solid ${stroke};border-radius:14px;padding:0.5rem 0.6rem;display:flex;flex-direction:column;gap:0.3rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
+        <span style="font-weight:600;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${
+    escapeHtml(m.councilName ?? "—")
+  }">${escapeHtml(m.councilName ?? "—")}</span>
+        <span style="font-size:0.85rem">${flagsHtml}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;color:#555">
+        <span class="topology-activity-tag" style="background:#fff;border:1px solid ${stroke};padding:0.05rem 0.35rem;border-radius:10px">idle</span>
+        <span>${assetCount} asset${assetCount === 1 ? "" : "s"}</span>
+      </div>
+      <div class="topology-sibling-dots" style="display:flex;flex-wrap:wrap;gap:3px;min-height:14px">${siblingDots}</div>
+      <div style="font-size:0.65rem;color:#555;text-align:center">${siblingCaption}</div>
+    </div>
+  `;
+}
+
+function renderSiblingDots(
+  siblings: Array<{ publicKey: string; label: string | null }>,
+): string {
+  if (siblings.length === 0) return "";
+  const visible = siblings.slice(0, SIBLING_DOTS_VISIBLE);
+  const overflow = siblings.length - visible.length;
+  const dots = visible
+    .map(
+      (s) =>
+        `<span class="topology-sibling-dot" title="${
+          escapeHtml(s.label ?? s.publicKey)
+        }" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#868e96"></span>`,
+    )
+    .join("");
+  const more = overflow > 0
+    ? `<span class="topology-sibling-overflow" style="font-size:0.65rem;color:#555;align-self:center">+${overflow}</span>`
+    : "";
+  return dots + more;
+}
+
 function renderTemplate(
   _pp: PpInfo,
   name: string,
   opexBalance: string,
   memberships: MembershipInfo[],
+  siblingsByCouncil: Map<
+    string,
+    Array<{ publicKey: string; label: string | null }>
+  >,
 ): string {
-  const councilCards = memberships.length === 0
-    ? `<div style="color:var(--text-muted)">No council memberships yet.</div>`
-    : memberships.map((m) => renderCouncilCard(m)).join("");
-
   return `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
-      <div style="display:flex;align-items:center;gap:0.5rem">
-        <a href="#/" class="icon-btn" title="Back" style="color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></a>
-        <h2 style="margin:0">${escapeHtml(name)}</h2>
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem">
+      <a href="#/" class="icon-btn" title="Back" style="color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></a>
+      <h2 style="margin:0">${escapeHtml(name)}</h2>
+    </div>
+
+    <div class="dashboard-v2" style="display:grid;grid-template-columns:1fr 280px;grid-template-areas:'counter counter' 'topology feed' 'sparklines sparklines';gap:0.75rem;margin-bottom:1.5rem">
+      <div class="zone-counter" style="grid-area:counter;display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem">
+        ${renderCounterPlaceholder("Throughput", "last 15m")}
+        ${renderCounterPlaceholder("Avg Latency", "last 100")}
+        ${renderCounterPlaceholder("Queue Depth", "now")}
+        ${renderCounterPlaceholder("Error Rate", "1h")}
       </div>
-      <div style="display:flex;align-items:center;gap:0.25rem">
-        <button id="copy-provider-url" class="icon-btn" title="Copy provider URL"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
-        <button id="copy-opex-address" class="icon-btn" title="Copy OpEx address"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg></button>
-        <button id="fund-btn" class="icon-btn" title="Fund OpEx account"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8"/><path d="M12 18V6"/></svg></button>
+
+      <div class="zone-topology stat-card" style="grid-area:topology;padding:0.75rem;overflow:auto">
+        ${renderTopology(name, opexBalance, memberships, siblingsByCouncil)}
+      </div>
+
+      <div class="zone-feed stat-card" style="grid-area:feed;padding:0.75rem;min-height:${TOPOLOGY_HEIGHT}px;display:flex;flex-direction:column">
+        <div style="font-weight:600;margin-bottom:0.5rem">Activity</div>
+        <div class="zone-feed-placeholder" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:0.8rem;text-align:center">
+          No events yet —<br>live feed lights up<br>when pulses ship.
+        </div>
+      </div>
+
+      <div class="zone-sparklines" style="grid-area:sparklines;display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;min-height:180px">
+        ${renderSparklinePlaceholder("Throughput (bundles/min)")}
+        ${renderSparklinePlaceholder("Latency mempool→verified (s)")}
+        ${renderSparklinePlaceholder("Queue depth")}
       </div>
     </div>
 
-    <div style="padding:0.6rem 0.9rem;margin-bottom:1.5rem;border:1px solid var(--border);border-radius:8px;background:var(--surface);display:inline-flex;flex-direction:column;align-items:flex-start;gap:0.35rem;text-align:left">
-      <span style="color:var(--text-muted);font-size:0.7rem;letter-spacing:0.05em;text-transform:uppercase">OpEx Balance</span>
-      <span style="font-size:1.1rem;font-weight:600">${
-    escapeHtml(opexBalance)
-  }</span>
-    </div>
-    <p id="fund-error" class="error-text" hidden style="margin:0 0 1rem"></p>
+    <div class="drill-down-section">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;flex-wrap:wrap">
+        <h3 style="margin:0;margin-right:0.5rem">Drill-down</h3>
+        <div role="tablist" style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+          <button id="mode-live" class="mode-tab" data-active="true" disabled>Live</button>
+          <button id="mode-range" class="mode-tab" data-active="false">Range</button>
+        </div>
+        <label id="range-from-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">From <input id="range-from" type="date" style="font-size:0.8rem"></label>
+        <label id="range-to-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">To <input id="range-to" type="date" style="font-size:0.8rem"></label>
+        <button id="range-search" class="btn-primary" style="display:none;padding:0.25rem 0.7rem;font-size:0.8rem">Search</button>
+        <span id="range-status" style="font-size:0.75rem;color:var(--text-muted)"></span>
+      </div>
 
-    <h3 style="margin:0 0 0.5rem">Councils</h3>
-    <div id="councils" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin-bottom:2rem">${councilCards}</div>
+      <div id="dashboard" style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.75rem;margin-bottom:1.5rem">
+        <div class="stat-card" style="padding:0.75rem">
+          <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Deposit</span><span id="deposit-count" class="badge" style="font-weight:normal">0</span></div>
+          <div id="deposit-list" class="dashboard-column"></div>
+        </div>
+        <div class="stat-card" style="padding:0.75rem">
+          <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Mempool</span><span id="mempool-count" class="badge" style="font-weight:normal">0</span></div>
+          <div id="mempool-list" class="dashboard-column"></div>
+        </div>
+        <div class="stat-card" style="padding:0.75rem">
+          <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Submitted</span><span id="submitted-count" class="badge" style="font-weight:normal">0</span></div>
+          <div id="submitted-list" class="dashboard-column"></div>
+        </div>
+        <div class="stat-card" style="padding:0.75rem">
+          <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Verified</span><span id="verified-count" class="badge" style="font-weight:normal">0</span></div>
+          <div id="verified-list" class="dashboard-column"></div>
+        </div>
+        <div class="stat-card" style="padding:0.75rem">
+          <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Withdrawn</span><span id="withdrawn-count" class="badge" style="font-weight:normal">0</span></div>
+          <div id="withdrawn-list" class="dashboard-column"></div>
+        </div>
+      </div>
 
-    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;flex-wrap:wrap">
-      <h3 style="margin:0;margin-right:0.5rem">Dashboard</h3>
-      <div role="tablist" style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
-        <button id="mode-live" class="mode-tab" data-active="true" disabled>Live</button>
-        <button id="mode-range" class="mode-tab" data-active="false">Range</button>
+      <div id="tx-detail" class="stat-card" style="padding:1rem;display:none;position:relative">
+        <button id="tx-detail-close" class="icon-btn" title="Close" style="position:absolute;top:0.5rem;right:0.5rem"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        <div id="tx-detail-body"></div>
       </div>
-      <label id="range-from-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">From <input id="range-from" type="date" style="font-size:0.8rem"></label>
-      <label id="range-to-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">To <input id="range-to" type="date" style="font-size:0.8rem"></label>
-      <button id="range-search" class="btn-primary" style="display:none;padding:0.25rem 0.7rem;font-size:0.8rem">Search</button>
-      <span id="range-status" style="font-size:0.75rem;color:var(--text-muted)"></span>
-    </div>
-
-    <div id="dashboard" style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.75rem;margin-bottom:1.5rem">
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Deposit</span><span id="deposit-count" class="badge" style="font-weight:normal">0</span></div>
-        <div id="deposit-list" class="dashboard-column"></div>
-      </div>
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Mempool</span><span id="mempool-count" class="badge" style="font-weight:normal">0</span></div>
-        <div id="mempool-list" class="dashboard-column"></div>
-      </div>
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Submitted</span><span id="submitted-count" class="badge" style="font-weight:normal">0</span></div>
-        <div id="submitted-list" class="dashboard-column"></div>
-      </div>
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Verified</span><span id="verified-count" class="badge" style="font-weight:normal">0</span></div>
-        <div id="verified-list" class="dashboard-column"></div>
-      </div>
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Withdrawn</span><span id="withdrawn-count" class="badge" style="font-weight:normal">0</span></div>
-        <div id="withdrawn-list" class="dashboard-column"></div>
-      </div>
-    </div>
-
-    <div id="tx-detail" class="stat-card" style="padding:1rem;display:none;position:relative">
-      <button id="tx-detail-close" class="icon-btn" title="Close" style="position:absolute;top:0.5rem;right:0.5rem"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-      <div id="tx-detail-body"></div>
     </div>
   `;
 }
 
-function renderCouncilCard(m: MembershipInfo): string {
-  const merged = mergedJurisdictions(m);
-  const flagsHtml = merged.length ? flags(merged) : "—";
-  const assetChips = m.channels.length
-    ? m.channels.map((c) =>
-      `<button class="badge badge-active asset-chip" data-channel="${
-        escapeHtml(c.channelContractId)
-      }" title="Click to copy channel id" style="border:none;cursor:pointer;margin-right:0.25rem">${
-        escapeHtml(c.assetCode)
-      }</button>`
-    ).join("")
-    : '<span style="color:var(--text-muted);font-size:0.85rem">No assets yet</span>';
+function renderCounterPlaceholder(label: string, window: string): string {
   return `
-    <div class="stat-card" style="padding:0.75rem 1rem">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem">
-        <span style="font-weight:600">${escapeHtml(m.councilName || "—")}</span>
-        <div>${flagsHtml}</div>
-      </div>
-      <div style="display:flex;gap:0.25rem;flex-wrap:wrap">${assetChips}</div>
+    <div class="zone-counter-box stat-card" style="padding:0.6rem 0.8rem;border-color:#1c7ed6;background:#e7f5ff">
+      <div style="font-size:0.65rem;letter-spacing:0.06em;text-transform:uppercase;color:#1864ab;font-weight:600">${
+    escapeHtml(label)
+  }</div>
+      <div style="font-size:0.65rem;color:#555">${escapeHtml(window)}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#1864ab;margin-top:0.2rem">—</div>
     </div>
   `;
 }
 
-function wireHeader(root: HTMLElement, pp: PpInfo): void {
+function renderSparklinePlaceholder(label: string): string {
+  return `
+    <div class="zone-sparkline-box stat-card" style="padding:0.6rem 0.8rem;display:flex;flex-direction:column;gap:0.3rem">
+      <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em">${
+    escapeHtml(label)
+  }</div>
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:0.75rem">—</div>
+    </div>
+  `;
+}
+
+function wireMyPpActions(root: HTMLElement, pp: PpInfo): void {
   const opexBtn = root.querySelector(
     "#copy-opex-address",
   ) as HTMLButtonElement | null;
@@ -289,22 +469,6 @@ function wireFund(root: HTMLElement, ppPublicKey: string): void {
     } finally {
       fundBtn.disabled = false;
     }
-  });
-}
-
-function wireCouncils(root: HTMLElement): void {
-  root.querySelectorAll(".asset-chip").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const channelId = (btn as HTMLElement).dataset.channel;
-      if (!channelId) return;
-      navigator.clipboard.writeText(channelId).then(() => {
-        const orig = btn.textContent;
-        btn.textContent = "Copied!";
-        setTimeout(() => {
-          btn.textContent = orig;
-        }, 1200);
-      });
-    });
   });
 }
 
