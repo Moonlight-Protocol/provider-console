@@ -1,15 +1,14 @@
 import { page } from "../components/page.ts";
 import { escapeHtml } from "../lib/dom.ts";
 import {
-  getTransactionDetail,
+  discoverCouncil,
+  getMetrics,
   getTreasury,
   listPps,
-  listTransactions,
   type MembershipInfo,
+  type MetricsSnapshot,
   type PpInfo,
-  type TransactionDetail,
   type TreasuryData,
-  type UtxoInfo,
 } from "../lib/api.ts";
 import { getRouteParams, navigate, onCleanup } from "../lib/router.ts";
 import { EventsClient, type ProviderEvent } from "../lib/events-client.ts";
@@ -17,9 +16,9 @@ import { getConnectedAddress, signTransaction } from "../lib/wallet.ts";
 import { buildFundTx, submitHorizonTx } from "../lib/stellar.ts";
 import { API_BASE_URL } from "../lib/config.ts";
 
-const ITEM_FADE_OUT_MS = 300;
-const KEEP_LAST_HISTORICAL = 30;
-const LIVE_ITEM_LIFETIME_MS = 30_000;
+// -----------------------------------------------------------------------------
+// Shared helpers (unchanged from v1)
+// -----------------------------------------------------------------------------
 
 function truncate(s: string, head = 6, tail = 4): string {
   return s.length > head + tail + 1
@@ -49,15 +48,6 @@ function mergedJurisdictions(m: MembershipInfo): string[] {
   );
 }
 
-function pickPrimaryChannel(memberships: MembershipInfo[]): string | null {
-  for (const m of memberships) {
-    if (m.status === "ACTIVE" && m.channels[0]) {
-      return m.channels[0].channelContractId;
-    }
-  }
-  return null;
-}
-
 function fmtAmountStroops(stroops: string): string {
   const big = BigInt(stroops);
   const whole = big / 10_000_000n;
@@ -65,9 +55,15 @@ function fmtAmountStroops(stroops: string): string {
   return `${whole}.${frac.toString().padStart(7, "0").slice(0, 2)}`;
 }
 
-function fmtTime(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString();
+function fmtRelativeTime(epochMs: number, now: number): string {
+  const delta = Math.max(0, now - epochMs);
+  if (delta < 1000) return "just now";
+  const sec = Math.floor(delta / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ago`;
 }
 
 function withBriefCopyFeedback(btn: HTMLElement): void {
@@ -78,6 +74,10 @@ function withBriefCopyFeedback(btn: HTMLElement): void {
     btn.innerHTML = orig;
   }, 1200);
 }
+
+// -----------------------------------------------------------------------------
+// Top-level view
+// -----------------------------------------------------------------------------
 
 async function renderContent(): Promise<HTMLElement> {
   const root = document.createElement("div");
@@ -108,7 +108,6 @@ async function renderContent(): Promise<HTMLElement> {
   }
 
   const memberships = pp.councilMemberships;
-  const primaryChannelId = pickPrimaryChannel(memberships);
 
   let treasury: TreasuryData | null = null;
   try {
@@ -119,28 +118,63 @@ async function renderContent(): Promise<HTMLElement> {
   const opexBalance = xlm ? `${parseFloat(xlm.balance).toFixed(2)} XLM` : "—";
   const name = pp.label || truncate(pp.publicKey);
 
-  root.innerHTML = renderTemplate(pp, name, opexBalance, memberships);
+  // Sibling-PP lists per council: one POST /dashboard/council/discover per
+  // membership, in parallel, cached in-memory for the view's lifetime.
+  // Best-effort — failures render the council node with no sibling dots.
+  const siblingsByCouncil = new Map<
+    string,
+    Array<{ publicKey: string; label: string | null }>
+  >();
+  const discoveryResults = await Promise.allSettled(
+    memberships.map(async (m) => {
+      const info = await discoverCouncil(m.councilUrl);
+      return { councilUrl: m.councilUrl, providers: info.providers };
+    }),
+  );
+  for (const r of discoveryResults) {
+    if (r.status === "fulfilled") {
+      siblingsByCouncil.set(r.value.councilUrl, r.value.providers);
+    }
+  }
+
+  root.innerHTML = renderTemplate(name, opexBalance, memberships);
 
   wireHeader(root, pp);
   wireFund(root, pp.publicKey);
   wireCouncils(root);
 
-  const dashboard = setupDashboard(root, ppPublicKey, primaryChannelId);
+  // v2 zones (counter strip / topology / activity feed / sparklines).
+  const zones = setupV2Zones({
+    root,
+    ppPublicKey,
+    name,
+    memberships,
+    siblingsByCouncil,
+  });
 
-  // Live events
   const client = new EventsClient({
     ppPublicKey,
-    onEvent: (event) => dashboard.handleEvent(event),
-    onStatus: (status) => dashboard.setStatus(status),
+    onEvent: (event) => zones.handleEvent(event),
+    onStatus: (status) => zones.setStatus(status),
   });
   client.start();
-  onCleanup(() => client.stop());
+  onCleanup(() => {
+    client.stop();
+    zones.stop();
+  });
 
   return root;
 }
 
+// -----------------------------------------------------------------------------
+// HTML template
+//
+// v1 top stays AS-IS (header + OpEx card + 3-up Councils list) per `-3` §4.
+// v2 zones land in the space the v1 events UI (5-column + mode toggle +
+// tx-detail card) used to occupy.
+// -----------------------------------------------------------------------------
+
 function renderTemplate(
-  _pp: PpInfo,
   name: string,
   opexBalance: string,
   memberships: MembershipInfo[],
@@ -173,44 +207,72 @@ function renderTemplate(
     <h3 style="margin:0 0 0.5rem">Councils</h3>
     <div id="councils" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin-bottom:2rem">${councilCards}</div>
 
-    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;flex-wrap:wrap">
-      <h3 style="margin:0;margin-right:0.5rem">Dashboard</h3>
-      <div role="tablist" style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
-        <button id="mode-live" class="mode-tab" data-active="true" disabled>Live</button>
-        <button id="mode-range" class="mode-tab" data-active="false">Range</button>
+    <div class="dashboard-v2" style="display:grid;grid-template-columns:1fr 280px;grid-template-areas:'counter counter' 'topology feed' 'sparklines sparklines';gap:0.75rem">
+      <div class="zone-counter" style="grid-area:counter;display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem">
+        ${
+    renderCounterBox("throughput", "Throughput", "last 15m", "bundles/min")
+  }
+        ${renderCounterBox("latency", "Avg Latency", "last 100 bundles", "ms")}
+        ${renderCounterBox("queue", "Queue Depth", "now", "in mempool")}
+        ${renderCounterBox("error-rate", "Error Rate", "1h", "of bundles")}
       </div>
-      <label id="range-from-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">From <input id="range-from" type="date" style="font-size:0.8rem"></label>
-      <label id="range-to-wrap" style="display:none;align-items:center;gap:0.25rem;font-size:0.8rem">To <input id="range-to" type="date" style="font-size:0.8rem"></label>
-      <button id="range-search" class="btn-primary" style="display:none;padding:0.25rem 0.7rem;font-size:0.8rem">Search</button>
-      <span id="range-status" style="font-size:0.75rem;color:var(--text-muted)"></span>
-    </div>
 
-    <div id="dashboard" style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.75rem;margin-bottom:1.5rem">
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Deposit</span><span id="deposit-count" class="badge" style="font-weight:normal">0</span></div>
-        <div id="deposit-list" class="dashboard-column"></div>
+      <div class="zone-topology stat-card" style="grid-area:topology;padding:0.75rem;overflow:auto">
+        ${renderTopologyContainer(name, memberships)}
       </div>
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Mempool</span><span id="mempool-count" class="badge" style="font-weight:normal">0</span></div>
-        <div id="mempool-list" class="dashboard-column"></div>
+
+      <div class="zone-feed stat-card" style="grid-area:feed;padding:0.75rem;min-height:${TOPOLOGY_HEIGHT}px;display:flex;flex-direction:column">
+        <div style="font-weight:600;margin-bottom:0.5rem">Activity</div>
+        <div id="activity-feed" style="flex:1;display:flex;flex-direction:column;gap:0.4rem;overflow:hidden"></div>
+        <div id="activity-feed-empty" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:0.8rem;text-align:center">No events yet.</div>
       </div>
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Submitted</span><span id="submitted-count" class="badge" style="font-weight:normal">0</span></div>
-        <div id="submitted-list" class="dashboard-column"></div>
-      </div>
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Verified</span><span id="verified-count" class="badge" style="font-weight:normal">0</span></div>
-        <div id="verified-list" class="dashboard-column"></div>
-      </div>
-      <div class="stat-card" style="padding:0.75rem">
-        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;justify-content:space-between"><span>Withdrawn</span><span id="withdrawn-count" class="badge" style="font-weight:normal">0</span></div>
-        <div id="withdrawn-list" class="dashboard-column"></div>
+
+      <div class="zone-sparklines" style="grid-area:sparklines;display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;min-height:180px">
+        ${
+    renderSparklineBox("throughput", "Throughput (bundles/min)", "#1c7ed6")
+  }
+        ${
+    renderSparklineBox("latency", "Latency mempool→verified (s)", "#7950f2")
+  }
+        ${renderSparklineBox("queue", "Queue depth", "#2f9e44")}
       </div>
     </div>
+  `;
+}
 
-    <div id="tx-detail" class="stat-card" style="padding:1rem;display:none;position:relative">
-      <button id="tx-detail-close" class="icon-btn" title="Close" style="position:absolute;top:0.5rem;right:0.5rem"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-      <div id="tx-detail-body"></div>
+function renderCounterBox(
+  id: string,
+  label: string,
+  window: string,
+  unit: string,
+): string {
+  return `
+    <div class="zone-counter-box stat-card" style="padding:0.6rem 0.8rem;border-color:#1971c2;background:#e7f5ff">
+      <div style="font-size:0.65rem;letter-spacing:0.06em;text-transform:uppercase;color:#1864ab;font-weight:600">${
+    escapeHtml(label)
+  }</div>
+      <div style="font-size:0.65rem;color:#555">${escapeHtml(window)}</div>
+      <div style="display:flex;align-items:baseline;gap:0.3rem;margin-top:0.2rem">
+        <span id="counter-${id}-value" style="font-size:1.4rem;font-weight:700;color:#1864ab">—</span>
+        <span style="font-size:0.65rem;color:#555">${escapeHtml(unit)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderSparklineBox(id: string, label: string, color: string): string {
+  return `
+    <div class="zone-sparkline-box stat-card" style="padding:0.6rem 0.8rem;display:flex;flex-direction:column;gap:0.3rem">
+      <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em">${
+    escapeHtml(label)
+  }</div>
+      <svg id="sparkline-${id}" viewBox="0 0 ${SPARKLINE_WIDTH} ${SPARKLINE_HEIGHT}" preserveAspectRatio="none" style="flex:1;width:100%;height:auto;min-height:120px">
+        <polyline fill="none" stroke="${color}" stroke-width="1.5" points=""></polyline>
+        <text x="${SPARKLINE_WIDTH / 2}" y="${
+    SPARKLINE_HEIGHT /
+    2
+  }" text-anchor="middle" dominant-baseline="middle" fill="var(--text-muted)" font-size="10" id="sparkline-${id}-empty">—</text>
+      </svg>
     </div>
   `;
 }
@@ -220,11 +282,9 @@ function renderCouncilCard(m: MembershipInfo): string {
   const flagsHtml = merged.length ? flags(merged) : "—";
   const assetChips = m.channels.length
     ? m.channels.map((c) =>
-      `<button class="badge badge-active asset-chip" data-channel="${
-        escapeHtml(c.channelContractId)
-      }" title="Click to copy channel id" style="border:none;cursor:pointer;margin-right:0.25rem">${
+      `<span class="badge badge-active" style="margin-right:0.25rem">${
         escapeHtml(c.assetCode)
-      }</button>`
+      }</span>`
     ).join("")
     : '<span style="color:var(--text-muted);font-size:0.85rem">No assets yet</span>';
   return `
@@ -237,6 +297,10 @@ function renderCouncilCard(m: MembershipInfo): string {
     </div>
   `;
 }
+
+// -----------------------------------------------------------------------------
+// v1 header / fund / councils wiring (unchanged paths)
+// -----------------------------------------------------------------------------
 
 function wireHeader(root: HTMLElement, pp: PpInfo): void {
   const opexBtn = root.querySelector(
@@ -292,589 +356,524 @@ function wireFund(root: HTMLElement, ppPublicKey: string): void {
   });
 }
 
-function wireCouncils(root: HTMLElement): void {
-  root.querySelectorAll(".asset-chip").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const channelId = (btn as HTMLElement).dataset.channel;
-      if (!channelId) return;
-      navigator.clipboard.writeText(channelId).then(() => {
-        const orig = btn.textContent;
-        btn.textContent = "Copied!";
-        setTimeout(() => {
-          btn.textContent = orig;
-        }, 1200);
-      });
-    });
-  });
+function wireCouncils(_root: HTMLElement): void {
+  // v1 had asset-chip click-to-copy on the 3-up council cards. Dropped per
+  // `-3` §5 ("Asset-chip-copy — PM confirmed drop; do not restore.").
+  // The 3-up render itself stays per `-3` §4.
 }
 
-type DashboardMode = "live" | "range";
+// -----------------------------------------------------------------------------
+// v2 zones — topology + counter strip + activity feed + sparklines
+// All zones are always-live: no Range mode, no Search, no mode toggle.
+// -----------------------------------------------------------------------------
 
-type DashboardHandle = {
-  handleEvent: (event: ProviderEvent) => void;
-  setStatus: (status: "connecting" | "open" | "closed") => void;
-  setMode: (mode: DashboardMode) => void;
-  loadRange: (txs: TransactionDetail[]) => void;
-  getMode: () => DashboardMode;
+const TOPOLOGY_WIDTH = 850;
+const TOPOLOGY_HEIGHT = 470;
+const TOPOLOGY_CENTER_X = TOPOLOGY_WIDTH / 2;
+const TOPOLOGY_CENTER_Y = TOPOLOGY_HEIGHT / 2;
+const COUNCIL_RING_RADIUS = 180;
+const SIBLING_DOTS_VISIBLE = 10;
+
+const SPARKLINE_WIDTH = 300;
+const SPARKLINE_HEIGHT = 80;
+
+const METRICS_POLL_MS = 60_000;
+const SPARKLINE_RANGE_MIN = 60;
+const FEED_MAX_CARDS = 5;
+const FEED_CARD_LIFETIME_MS = 8_000;
+const FEED_CARD_FADE_MS = 300;
+const PULSE_DURATION_MS = 1_000;
+const COUNCIL_ACTIVITY_WINDOW_MS = 5 * 60_000;
+const COUNCIL_ACTIVITY_HIGH = 10;
+const COUNCIL_ACTIVITY_LOW = 3;
+
+const PULSE_COLORS: Record<ProviderEvent["kind"], string> = {
+  "bundle.deposit_completed": "#fab005",
+  "mempool.bundle_added": "#1c7ed6",
+  "mempool.bundle_expired": "#868e96",
+  "executor.transaction_submitted": "#37b24d",
+  "executor.execution_failed": "#fa5252",
+  "verifier.bundle_completed": "#7950f2",
+  "verifier.bundle_failed": "#fa5252",
+  "bundle.withdraw_completed": "#fd7e14",
+  "channel.provider_added": "#868e96",
+  "channel.provider_removed": "#868e96",
 };
 
-type ClickContext =
-  | { kind: "tx"; txId: string }
-  | { kind: "utxo"; utxoId: string }
-  | {
-    kind: "withdraw";
-    txId: string;
-    bundleId: string;
-    recipientAddress: string;
+const FEED_LABELS: Record<ProviderEvent["kind"], string> = {
+  "bundle.deposit_completed": "Deposit",
+  "mempool.bundle_added": "Mempool",
+  "mempool.bundle_expired": "Expired",
+  "executor.transaction_submitted": "Submitted",
+  "executor.execution_failed": "Execution failed",
+  "verifier.bundle_completed": "Verified",
+  "verifier.bundle_failed": "Verify failed",
+  "bundle.withdraw_completed": "Withdraw",
+  "channel.provider_added": "Channel joined",
+  "channel.provider_removed": "Channel left",
+};
+
+function councilNodePosition(
+  index: number,
+  total: number,
+): { x: number; y: number } {
+  const theta = -Math.PI / 2 + (2 * Math.PI * index) / Math.max(total, 1);
+  return {
+    x: TOPOLOGY_CENTER_X + COUNCIL_RING_RADIUS * Math.cos(theta),
+    y: TOPOLOGY_CENTER_Y + COUNCIL_RING_RADIUS * Math.sin(theta),
   };
+}
 
-function setupDashboard(
-  root: HTMLElement,
-  ppPublicKey: string,
-  channelContractId: string | null,
-): DashboardHandle {
-  const liveBtn = root.querySelector("#mode-live") as HTMLButtonElement;
-  const rangeBtn = root.querySelector("#mode-range") as HTMLButtonElement;
-  const fromInput = root.querySelector("#range-from") as HTMLInputElement;
-  const toInput = root.querySelector("#range-to") as HTMLInputElement;
-  const fromWrap = root.querySelector("#range-from-wrap") as HTMLElement;
-  const toWrap = root.querySelector("#range-to-wrap") as HTMLElement;
-  const searchBtn = root.querySelector("#range-search") as HTMLButtonElement;
-  const rangeStatusEl = root.querySelector("#range-status") as HTMLElement;
-  const depositEl = root.querySelector("#deposit-list") as HTMLElement;
-  const mempoolEl = root.querySelector("#mempool-list") as HTMLElement;
-  const submittedEl = root.querySelector("#submitted-list") as HTMLElement;
-  const verifiedEl = root.querySelector("#verified-list") as HTMLElement;
-  const withdrawnEl = root.querySelector("#withdrawn-list") as HTMLElement;
-  const txDetailEl = root.querySelector("#tx-detail") as HTMLElement;
-  const txDetailBody = root.querySelector("#tx-detail-body") as HTMLElement;
-  const txDetailClose = root.querySelector(
-    "#tx-detail-close",
-  ) as HTMLButtonElement;
+function renderTopologyContainer(
+  name: string,
+  memberships: MembershipInfo[],
+): string {
+  const positions = memberships.map((_, i) =>
+    councilNodePosition(i, memberships.length)
+  );
 
-  function hideTxDetail(): void {
-    txDetailEl.style.display = "none";
-    txDetailBody.innerHTML = "";
-  }
-  txDetailClose.addEventListener("click", hideTxDetail);
+  const edges = positions
+    .map(
+      (p, i) =>
+        `<line data-council-edge="${i}" x1="${TOPOLOGY_CENTER_X}" y1="${TOPOLOGY_CENTER_Y}" x2="${p.x}" y2="${p.y}" stroke="var(--border)" stroke-width="2" />`,
+    )
+    .join("");
 
-  const counts: Record<string, HTMLElement> = {
-    deposit: root.querySelector("#deposit-count") as HTMLElement,
-    mempool: root.querySelector("#mempool-count") as HTMLElement,
-    submitted: root.querySelector("#submitted-count") as HTMLElement,
-    verified: root.querySelector("#verified-count") as HTMLElement,
-    withdrawn: root.querySelector("#withdrawn-count") as HTMLElement,
-  };
-  function syncCount(key: keyof typeof counts, container: HTMLElement): void {
-    counts[key].textContent = String(container.childElementCount);
-  }
-  function syncAllCounts(): void {
-    syncCount("deposit", depositEl);
-    syncCount("mempool", mempoolEl);
-    syncCount("submitted", submittedEl);
-    syncCount("verified", verifiedEl);
-    syncCount("withdrawn", withdrawnEl);
-  }
+  const councilNodeBoxes = memberships
+    .map((m, i) => renderCouncilNodeBox(m, i, positions[i]))
+    .join("");
 
-  let mode: DashboardMode = "live";
-  let wsStatus: "connecting" | "open" | "closed" = "connecting";
+  const emptyState = memberships.length === 0
+    ? `<div class="topology-empty" style="position:absolute;left:50%;top:80%;transform:translate(-50%,-50%);color:var(--text-muted);font-size:0.85rem;text-align:center">No council memberships yet.</div>`
+    : "";
 
-  function fadeInItem(el: HTMLElement): void {
-    // Double rAF: forces the browser to paint the initial opacity:0 state
-    // before adding is-visible, so the transition actually runs.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => el.classList.add("is-visible"));
-    });
-    if (mode === "live") {
-      setTimeout(() => {
-        console.debug(
-          "[dashboard] item lifetime expired, fading",
-          el.title || el.textContent,
-        );
-        fadeOutAndRemove(el);
-      }, LIVE_ITEM_LIFETIME_MS);
-    }
-  }
+  return `
+    <div id="topology" class="topology" style="position:relative;width:${TOPOLOGY_WIDTH}px;height:${TOPOLOGY_HEIGHT}px;margin:0 auto">
+      <svg id="topology-svg" viewBox="0 0 ${TOPOLOGY_WIDTH} ${TOPOLOGY_HEIGHT}" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+        ${edges}
+      </svg>
+      <div class="topology-my-pp" style="position:absolute;left:${TOPOLOGY_CENTER_X}px;top:${TOPOLOGY_CENTER_Y}px;transform:translate(-50%,-50%);width:160px;height:160px;background:#fff3bf;color:#1a1a1a;border:3px solid #1a1a1a;border-radius:50%;display:flex;align-items:center;justify-content:center;text-align:center;padding:0.5rem">
+        <span style="font-weight:700;font-size:0.9rem;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${
+    escapeHtml(name)
+  }">${escapeHtml(name)}</span>
+      </div>
+      ${councilNodeBoxes}
+      ${emptyState}
+    </div>
+  `;
+}
 
-  function clearAllColumns(): void {
-    for (
-      const el of [depositEl, mempoolEl, submittedEl, verifiedEl, withdrawnEl]
-    ) el.textContent = "";
-    hideTxDetail();
-    syncAllCounts();
-  }
+function renderCouncilNodeBox(
+  m: MembershipInfo,
+  index: number,
+  pos: { x: number; y: number },
+): string {
+  const merged = mergedJurisdictions(m);
+  const flagsHtml = merged.length ? flags(merged) : "";
+  const assetCount = m.channels.length;
+  return `
+    <div class="topology-council-node" data-council-index="${index}" data-activity="idle" style="position:absolute;left:${pos.x}px;top:${pos.y}px;transform:translate(-50%,-50%);width:170px;background:#e9ecef;border:2px solid #868e96;border-radius:14px;padding:0.5rem 0.6rem;display:flex;flex-direction:column;gap:0.3rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
+        <span style="font-weight:600;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${
+    escapeHtml(m.councilName ?? "—")
+  }">${escapeHtml(m.councilName ?? "—")}</span>
+        <span style="font-size:0.85rem">${flagsHtml}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;color:#555">
+        <span class="topology-activity-tag" style="background:#fff;border:1px solid currentColor;padding:0.05rem 0.35rem;border-radius:10px">idle</span>
+        <span>${assetCount} asset${assetCount === 1 ? "" : "s"}</span>
+      </div>
+      <div class="topology-sibling-dots" data-council-siblings="${index}" style="display:flex;flex-wrap:wrap;gap:3px;min-height:14px"></div>
+      <div class="topology-sibling-caption" data-council-caption="${index}" style="font-size:0.65rem;color:#555;text-align:center">—</div>
+    </div>
+  `;
+}
 
-  function updateModeUi(): void {
-    liveBtn.dataset.active = mode === "live" ? "true" : "false";
-    rangeBtn.dataset.active = mode === "range" ? "true" : "false";
-    const showRangeControls = mode === "range";
-    fromWrap.style.display = showRangeControls ? "inline-flex" : "none";
-    toWrap.style.display = showRangeControls ? "inline-flex" : "none";
-    searchBtn.style.display = showRangeControls ? "inline-block" : "none";
-    liveBtn.disabled = wsStatus !== "open";
-    rangeStatusEl.textContent = "";
-  }
+interface SetupOpts {
+  root: HTMLElement;
+  ppPublicKey: string;
+  name: string;
+  memberships: MembershipInfo[];
+  siblingsByCouncil: Map<
+    string,
+    Array<{ publicKey: string; label: string | null }>
+  >;
+}
 
-  function fadeOutAndRemove(el: HTMLElement | undefined): void {
-    if (!el) return;
-    el.classList.remove("is-visible");
-    setTimeout(() => {
-      el.remove();
-      syncAllCounts();
-    }, ITEM_FADE_OUT_MS);
-  }
+interface ZoneHandle {
+  handleEvent: (event: ProviderEvent) => void;
+  setStatus: (status: "connecting" | "open" | "closed") => void;
+  stop: () => void;
+}
 
-  function makeItem(label: string, subLabel?: string): HTMLElement {
-    const el = document.createElement("div");
-    el.className = "dashboard-item";
-    el.innerHTML =
-      `<span class="mono" style="overflow:hidden;text-overflow:ellipsis">${
-        escapeHtml(label)
-      }</span>${
-        subLabel
-          ? `<span style="color:var(--text-muted);font-size:0.7rem">${
-            escapeHtml(subLabel)
-          }</span>`
-          : ""
-      }`;
-    return el;
-  }
+function setupV2Zones(opts: SetupOpts): ZoneHandle {
+  const { root, ppPublicKey, memberships, siblingsByCouncil } = opts;
 
-  function trimHistory(container: HTMLElement): void {
-    while (container.childElementCount > KEEP_LAST_HISTORICAL) {
-      container.firstElementChild?.remove();
-    }
-  }
-
-  syncAllCounts();
-
-  async function showDetail(ctx: ClickContext): Promise<void> {
-    txDetailEl.style.display = "block";
-    txDetailBody.innerHTML =
-      `<div style="color:var(--text-muted)">Loading…</div>`;
-    if (ctx.kind === "utxo") {
-      txDetailBody.innerHTML = renderUtxoDetail(undefined, ctx.utxoId);
-      return;
-    }
-    try {
-      const detail = await getTransactionDetail(ctx.txId, ppPublicKey);
-      txDetailBody.innerHTML = ctx.kind === "withdraw"
-        ? renderWithdrawDetail(detail, ctx.recipientAddress)
-        : renderTxDetail(detail);
-    } catch (err) {
-      txDetailBody.innerHTML = `<p class="error-text">${
-        escapeHtml(err instanceof Error ? err.message : String(err))
-      }</p>`;
-    }
-  }
-
-  function classifyTxIntoColumns(tx: TransactionDetail): void {
-    const verified = tx.status === "VERIFIED";
-    const isDeposit = tx.deposits.length > 0;
-    const isWithdraw = tx.withdraws.length > 0;
-
-    if (!verified) {
-      // Tx never finalized — surface it under Submitted (its latest state).
-      const item = makeItem(truncate(tx.id));
-      item.title = tx.id;
-      item.addEventListener(
-        "click",
-        () => showDetail({ kind: "tx", txId: tx.id }),
-      );
-      submittedEl.appendChild(item);
-      fadeInItem(item);
-    } else if (isDeposit) {
-      // Deposit txs land only in the Deposit column — one item per deposit op.
-      for (const dep of tx.deposits) {
-        const item = makeItem(
-          truncate(dep.depositorAddress, 8, 4),
-          `${fmtAmountStroops(dep.amount)} XLM`,
-        );
-        item.title = dep.depositorAddress;
-        item.addEventListener(
-          "click",
-          () => showDetail({ kind: "tx", txId: tx.id }),
-        );
-        depositEl.appendChild(item);
-        fadeInItem(item);
-      }
-    } else if (isWithdraw) {
-      // Withdraw txs land only in the Withdrawn column — one per withdraw op.
-      for (const w of tx.withdraws) {
-        const item = makeItem(
-          truncate(w.recipientAddress, 8, 4),
-          `${fmtAmountStroops(w.amount)} XLM`,
-        );
-        item.title = w.recipientAddress;
-        item.addEventListener("click", () =>
-          showDetail({
-            kind: "withdraw",
-            txId: tx.id,
-            bundleId: tx.bundles[0]?.id ?? "",
-            recipientAddress: w.recipientAddress,
-          }));
-        withdrawnEl.appendChild(item);
-        fadeInItem(item);
-      }
-    } else {
-      // Regular verified send — Verified column only.
-      const item = makeItem(truncate(tx.id));
-      item.title = tx.id;
-      item.addEventListener(
-        "click",
-        () => showDetail({ kind: "tx", txId: tx.id }),
-      );
-      verifiedEl.appendChild(item);
-      fadeInItem(item);
-    }
-  }
-
-  // Mode-bar wiring
-  liveBtn.addEventListener("click", () => {
-    if (mode === "live" || liveBtn.disabled) return;
-    mode = "live";
-    clearAllColumns();
-    updateModeUi();
+  // Sibling dots are rendered post-mount so we don't have to escape into the
+  // big template string.
+  memberships.forEach((m, i) => {
+    const dotsEl = root.querySelector(
+      `[data-council-siblings="${i}"]`,
+    ) as HTMLElement | null;
+    const captionEl = root.querySelector(
+      `[data-council-caption="${i}"]`,
+    ) as HTMLElement | null;
+    if (!dotsEl || !captionEl) return;
+    const siblings = siblingsByCouncil.get(m.councilUrl) ?? [];
+    const visible = siblings.slice(0, SIBLING_DOTS_VISIBLE);
+    const overflow = siblings.length - visible.length;
+    dotsEl.innerHTML = visible.map((s) =>
+      `<span class="topology-sibling-dot" title="${
+        escapeHtml(s.label ?? s.publicKey)
+      }" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#868e96"></span>`
+    ).join("") +
+      (overflow > 0
+        ? `<span style="font-size:0.65rem;color:#555;align-self:center">+${overflow}</span>`
+        : "");
+    captionEl.textContent = siblings.length === 0
+      ? "— no sibling PPs yet —"
+      : `(${siblings.length} sibling PP${siblings.length === 1 ? "" : "s"})`;
   });
-  rangeBtn.addEventListener("click", () => {
-    if (mode === "range") return;
-    mode = "range";
-    clearAllColumns();
-    updateModeUi();
-  });
-  searchBtn.addEventListener("click", async () => {
-    if (mode !== "range") return;
-    if (!channelContractId) {
-      rangeStatusEl.textContent = "No channel — join a council first.";
-      return;
-    }
-    const fromVal = fromInput.value;
-    const toVal = toInput.value;
-    if (!fromVal || !toVal) {
-      rangeStatusEl.textContent = "Pick from + to first.";
-      return;
-    }
-    searchBtn.disabled = true;
-    rangeStatusEl.textContent = "Loading…";
-    clearAllColumns();
-    try {
-      // date inputs return YYYY-MM-DD — anchor from to start-of-day local time,
-      // to to end-of-day local time, then convert to ISO.
-      const fromIso = new Date(`${fromVal}T00:00:00`).toISOString();
-      const toIso = new Date(`${toVal}T23:59:59.999`).toISOString();
-      const { data, truncated } = await listTransactions({
-        ppPublicKey,
-        channelContractId,
-        fromIso,
-        toIso,
+
+  const svg = root.querySelector("#topology-svg") as SVGSVGElement | null;
+  const feedEl = root.querySelector("#activity-feed") as HTMLElement | null;
+  const feedEmptyEl = root.querySelector(
+    "#activity-feed-empty",
+  ) as HTMLElement | null;
+
+  // channelContractId → council index + label, for routing pulses to the right
+  // edge and resolving feed-card subtitles. Stable for the view's lifetime.
+  const channelToCouncil = new Map<
+    string,
+    { index: number; councilName: string | null }
+  >();
+  memberships.forEach((m, i) => {
+    for (const ch of m.channels) {
+      channelToCouncil.set(ch.channelContractId, {
+        index: i,
+        councilName: m.councilName,
       });
-      for (const tx of data) classifyTxIntoColumns(tx);
-      syncAllCounts();
-      rangeStatusEl.textContent = `${data.length} tx${
-        truncated ? " (truncated)" : ""
-      }`;
-    } catch (err) {
-      rangeStatusEl.textContent = err instanceof Error
-        ? err.message
-        : String(err);
-    } finally {
-      searchBtn.disabled = false;
     }
   });
+
+  // Per-council rolling pulse timestamps; entries older than the activity
+  // window are dropped on each event.
+  const councilPulses = new Map<number, number[]>();
+
+  function bucketActivity(count: number): {
+    label: "high" | "low" | "idle";
+    fill: string;
+    stroke: string;
+  } {
+    if (count >= COUNCIL_ACTIVITY_HIGH) {
+      return { label: "high", fill: "#d3f9d8", stroke: "#2f9e44" };
+    }
+    if (count >= COUNCIL_ACTIVITY_LOW) {
+      return { label: "low", fill: "#fff3bf", stroke: "#f59f00" };
+    }
+    return { label: "idle", fill: "#e9ecef", stroke: "#868e96" };
+  }
+
+  function recolorCouncil(index: number): void {
+    const stamps = councilPulses.get(index) ?? [];
+    const cutoff = Date.now() - COUNCIL_ACTIVITY_WINDOW_MS;
+    const fresh = stamps.filter((t) => t >= cutoff);
+    councilPulses.set(index, fresh);
+    const node = root.querySelector(
+      `[data-council-index="${index}"]`,
+    ) as HTMLElement | null;
+    if (!node) return;
+    const { label, fill, stroke } = bucketActivity(fresh.length);
+    node.style.background = fill;
+    node.style.borderColor = stroke;
+    node.dataset.activity = label;
+    const tag = node.querySelector(
+      ".topology-activity-tag",
+    ) as HTMLElement | null;
+    if (tag) {
+      tag.textContent = label;
+      tag.style.color = stroke;
+    }
+  }
+
+  function animatePulse(councilIndex: number, color: string): void {
+    if (!svg) return;
+    const pos = councilNodePosition(councilIndex, memberships.length);
+    const circle = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "circle",
+    );
+    circle.setAttribute("r", "7");
+    circle.setAttribute("fill", color);
+    circle.setAttribute("cx", String(TOPOLOGY_CENTER_X));
+    circle.setAttribute("cy", String(TOPOLOGY_CENTER_Y));
+    circle.setAttribute("opacity", "0");
+    svg.appendChild(circle);
+    const t0 = performance.now();
+    function step(now: number): void {
+      const t = Math.min(1, (now - t0) / PULSE_DURATION_MS);
+      const x = TOPOLOGY_CENTER_X + (pos.x - TOPOLOGY_CENTER_X) * t;
+      const y = TOPOLOGY_CENTER_Y + (pos.y - TOPOLOGY_CENTER_Y) * t;
+      const alpha = t < 0.1 ? t / 0.1 : 1 - (t - 0.1) / 0.9;
+      circle.setAttribute("cx", String(x));
+      circle.setAttribute("cy", String(y));
+      circle.setAttribute("opacity", String(Math.max(0, Math.min(1, alpha))));
+      if (t < 1) requestAnimationFrame(step);
+      else circle.remove();
+    }
+    requestAnimationFrame(step);
+  }
+
+  function pushFeedCard(event: ProviderEvent): void {
+    if (!feedEl) return;
+    const channelId = (event.payload as { channelContractId?: string | null })
+      .channelContractId ??
+      null;
+    const matched = channelId ? channelToCouncil.get(channelId) : undefined;
+    const councilLabel = matched?.councilName ?? "—";
+    const color = PULSE_COLORS[event.kind];
+    const kindLabel = FEED_LABELS[event.kind];
+
+    let amountHtml = "";
+    if (event.kind === "bundle.deposit_completed") {
+      amountHtml =
+        `<span style="margin-left:auto;font-size:0.7rem;color:#333">${
+          fmtAmountStroops(event.payload.amount)
+        } XLM</span>`;
+    } else if (event.kind === "bundle.withdraw_completed") {
+      amountHtml =
+        `<span style="margin-left:auto;font-size:0.7rem;color:#333">${
+          fmtAmountStroops(event.payload.amount)
+        } XLM</span>`;
+    }
+
+    const ts = Date.now();
+    const card = document.createElement("div");
+    card.className = "activity-feed-card";
+    card.dataset.ts = String(ts);
+    card.style.cssText =
+      `border-left:4px solid ${color};background:var(--surface);padding:0.4rem 0.55rem;border-radius:6px;font-size:0.8rem;opacity:0;transition:opacity ${FEED_CARD_FADE_MS}ms`;
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <span style="font-weight:600">${escapeHtml(kindLabel)}</span>
+        ${amountHtml}
+      </div>
+      <div style="display:flex;justify-content:space-between;color:#555;font-size:0.7rem;margin-top:0.15rem">
+        <span title="${escapeHtml(channelId ?? "")}">${
+      escapeHtml(councilLabel)
+    }</span>
+        <span class="activity-feed-relative">just now</span>
+      </div>
+    `;
+    feedEl.prepend(card);
+    if (feedEmptyEl) feedEmptyEl.style.display = "none";
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        card.style.opacity = "1";
+      });
+    });
+
+    while (feedEl.childElementCount > FEED_MAX_CARDS) {
+      feedEl.lastElementChild?.remove();
+    }
+
+    setTimeout(() => {
+      card.style.opacity = "0";
+      setTimeout(() => {
+        card.remove();
+        if (feedEl.childElementCount === 0 && feedEmptyEl) {
+          feedEmptyEl.style.display = "";
+        }
+      }, FEED_CARD_FADE_MS);
+    }, FEED_CARD_LIFETIME_MS);
+  }
+
+  // Counter strip + sparklines: /dashboard/metrics polled every 60s (same
+  // cadence as the platform's MetricsCollector snapshot loop).
+
+  function applyMetrics(resp: { snapshots: MetricsSnapshot[] }): void {
+    const snapshots = resp.snapshots;
+
+    // Snapshots arrive newest→oldest from the handler.
+    setCounter("queue", snapshots[0]?.queueDepth ?? null, (v) => String(v));
+
+    // THROUGHPUT (last 15m): mean of `throughputPerMin` across snapshots in
+    // the last 15 minutes.
+    const cutoff15 = Date.now() - 15 * 60_000;
+    const recent15 = snapshots.filter(
+      (s) => new Date(s.recordedAt).getTime() >= cutoff15,
+    );
+    const throughputValues = recent15
+      .map((s) => s.throughputPerMin)
+      .filter((v): v is number => typeof v === "number");
+    const meanThroughput = throughputValues.length > 0
+      ? throughputValues.reduce((a, b) => a + b, 0) / throughputValues.length
+      : null;
+    setCounter("throughput", meanThroughput, (v) => v.toFixed(2));
+
+    // AVG LATENCY (last 100 bundles): weighted avg of avgProcessingMs across
+    // newest snapshots until cumulative bundlesCompleted ≥ 100. Falls back to
+    // whatever we have if fewer than 100 completed in the window.
+    let weightSum = 0;
+    let weightedLatency = 0;
+    for (const s of snapshots) {
+      if (s.avgProcessingMs == null) continue;
+      weightedLatency += s.avgProcessingMs * s.bundlesCompleted;
+      weightSum += s.bundlesCompleted;
+      if (weightSum >= 100) break;
+    }
+    const avgLatency = weightSum > 0 ? weightedLatency / weightSum : null;
+    setCounter("latency", avgLatency, (v) => v.toFixed(0));
+
+    // ERROR RATE (1h): bundlesFailed / (bundlesCompleted + bundlesFailed +
+    // bundlesExpired). Requires bundlesFailed on every snapshot — pre-PR-104
+    // platforms omit the field, in which case we show "—" rather than a
+    // misleading 0%.
+    const hasFailureData = snapshots.length > 0 &&
+      snapshots.every((s) => typeof s.bundlesFailed === "number");
+    if (hasFailureData) {
+      let failed = 0;
+      let terminal = 0;
+      for (const s of snapshots) {
+        failed += s.bundlesFailed ?? 0;
+        terminal += (s.bundlesFailed ?? 0) + s.bundlesCompleted +
+          s.bundlesExpired;
+      }
+      const rate = terminal > 0 ? (failed / terminal) * 100 : 0;
+      setCounter("error-rate", rate, (v) => `${v.toFixed(1)}%`);
+    } else {
+      setCounter("error-rate", null, () => "—");
+    }
+
+    drawSparkline(
+      "throughput",
+      snapshots,
+      (s) => s.throughputPerMin,
+    );
+    drawSparkline(
+      "latency",
+      snapshots,
+      (s) => s.avgProcessingMs == null ? null : s.avgProcessingMs / 1000,
+    );
+    drawSparkline("queue", snapshots, (s) => s.queueDepth);
+  }
+
+  function setCounter(
+    id: string,
+    value: number | null,
+    fmt: (v: number) => string,
+  ): void {
+    const el = root.querySelector(
+      `#counter-${id}-value`,
+    ) as HTMLElement | null;
+    if (!el) return;
+    el.textContent = value == null ? "—" : fmt(value);
+  }
+
+  function drawSparkline(
+    id: string,
+    snapshots: MetricsSnapshot[],
+    pick: (s: MetricsSnapshot) => number | null,
+  ): void {
+    const svgEl = root.querySelector(
+      `#sparkline-${id}`,
+    ) as SVGSVGElement | null;
+    if (!svgEl) return;
+    const polyline = svgEl.querySelector("polyline");
+    const empty = svgEl.querySelector(`#sparkline-${id}-empty`) as
+      | SVGTextElement
+      | null;
+    if (!polyline) return;
+
+    // Server returns newest→oldest; reverse so x grows with time.
+    const ordered = [...snapshots].reverse();
+    const values = ordered.map(pick);
+
+    if (values.every((v) => v == null)) {
+      polyline.setAttribute("points", "");
+      if (empty) empty.style.display = "";
+      return;
+    }
+    if (empty) empty.style.display = "none";
+
+    const finiteValues = values.filter((v): v is number => v != null);
+    const minV = Math.min(...finiteValues, 0);
+    const maxV = Math.max(...finiteValues, minV + 1);
+    const range = maxV - minV;
+    const n = values.length;
+    const pairs: Array<{ x: number; y: number }> = [];
+    values.forEach((v, i) => {
+      if (v == null) return;
+      const x = n === 1 ? SPARKLINE_WIDTH / 2 : (i / (n - 1)) * SPARKLINE_WIDTH;
+      const yNorm = range === 0 ? 0.5 : (v - minV) / range;
+      const y = SPARKLINE_HEIGHT - yNorm * SPARKLINE_HEIGHT;
+      pairs.push({ x, y });
+    });
+
+    polyline.setAttribute(
+      "points",
+      pairs.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "),
+    );
+  }
+
+  // Refresh activity-feed cards' "Xs ago" subtitle so the relative time stays
+  // current between events.
+  const tickerInterval = globalThis.setInterval(() => {
+    const now = Date.now();
+    root.querySelectorAll(".activity-feed-card").forEach((card) => {
+      const ts = Number((card as HTMLElement).dataset.ts ?? 0);
+      const rel = card.querySelector(".activity-feed-relative");
+      if (rel && ts) rel.textContent = fmtRelativeTime(ts, now);
+    });
+  }, 1000);
+
+  let metricsTimer: number | null = null;
+  let stopped = false;
+
+  async function pollMetrics(): Promise<void> {
+    if (stopped) return;
+    try {
+      const data = await getMetrics(ppPublicKey, SPARKLINE_RANGE_MIN);
+      if (!stopped) applyMetrics(data);
+    } catch (err) {
+      console.warn("[v2-zones] metrics poll failed", err);
+    } finally {
+      if (!stopped) {
+        metricsTimer = globalThis.setTimeout(
+          pollMetrics,
+          METRICS_POLL_MS,
+        ) as unknown as number;
+      }
+    }
+  }
+  void pollMetrics();
 
   return {
-    getMode() {
-      return mode;
-    },
-    setMode(next) {
-      if (next === mode) return;
-      mode = next;
-      clearAllColumns();
-      updateModeUi();
-    },
-    loadRange(txs) {
-      mode = "range";
-      clearAllColumns();
-      for (const tx of txs) classifyTxIntoColumns(tx);
-      updateModeUi();
-      syncAllCounts();
-    },
     handleEvent(event) {
-      if (mode !== "live") return;
-      console.debug("[dashboard] event received", event.kind, event.payload);
-      switch (event.kind) {
-        case "mempool.bundle_added": {
-          const item = makeItem(truncate(event.payload.bundleId));
-          item.title = event.payload.bundleId;
-          mempoolEl.appendChild(item);
-          fadeInItem(item);
-          trimHistory(mempoolEl);
-          break;
-        }
-        case "mempool.bundle_expired": {
-          // No-op: the mempool item ages out on its own 60s timer.
-          break;
-        }
-        case "executor.transaction_submitted": {
-          // Add a Submitted item; the prior Mempool items stay until their
-          // own 60s lifetime is up.
-          const item = makeItem(truncate(event.payload.txHash));
-          item.title = event.payload.txHash;
-          item.addEventListener(
-            "click",
-            () => showDetail({ kind: "tx", txId: event.payload.txHash }),
-          );
-          submittedEl.appendChild(item);
-          fadeInItem(item);
-          trimHistory(submittedEl);
-          break;
-        }
-        case "executor.execution_failed": {
-          // No-op: prior items age out naturally.
-          break;
-        }
-        case "verifier.bundle_completed": {
-          const item = makeItem(truncate(event.payload.txId));
-          item.title = event.payload.txId;
-          item.addEventListener(
-            "click",
-            () => showDetail({ kind: "tx", txId: event.payload.txId }),
-          );
-          verifiedEl.appendChild(item);
-          fadeInItem(item);
-          trimHistory(verifiedEl);
-          break;
-        }
-        case "verifier.bundle_failed": {
-          // No-op: prior items age out naturally.
-          break;
-        }
-        case "bundle.deposit_completed": {
-          const item = makeItem(
-            truncate(event.payload.depositorAddress, 8, 4),
-            `${fmtAmountStroops(event.payload.amount)} XLM`,
-          );
-          item.title = event.payload.depositorAddress;
-          const payload = event.payload;
-          item.addEventListener(
-            "click",
-            () => showDetail({ kind: "tx", txId: payload.txId }),
-          );
-          depositEl.appendChild(item);
-          fadeInItem(item);
-          trimHistory(depositEl);
-          break;
-        }
-        case "bundle.withdraw_completed": {
-          const item = makeItem(
-            truncate(event.payload.recipientAddress, 8, 4),
-            `${fmtAmountStroops(event.payload.amount)} XLM`,
-          );
-          item.title = event.payload.recipientAddress;
-          const payload = event.payload;
-          item.addEventListener(
-            "click",
-            () =>
-              showDetail({
-                kind: "withdraw",
-                txId: payload.txId,
-                bundleId: payload.bundleId,
-                recipientAddress: payload.recipientAddress,
-              }),
-          );
-          withdrawnEl.appendChild(item);
-          fadeInItem(item);
-          trimHistory(withdrawnEl);
-          break;
-        }
+      const channelId = (event.payload as { channelContractId?: string | null })
+        .channelContractId ?? null;
+      const matched = channelId ? channelToCouncil.get(channelId) : undefined;
+
+      if (matched) {
+        const stamps = councilPulses.get(matched.index) ?? [];
+        stamps.push(Date.now());
+        councilPulses.set(matched.index, stamps);
+        recolorCouncil(matched.index);
+        animatePulse(matched.index, PULSE_COLORS[event.kind]);
       }
-      syncAllCounts();
+      pushFeedCard(event);
     },
-    setStatus(status) {
-      wsStatus = status;
-      if (status !== "open" && mode === "live") {
-        // WS not available — force Range mode (empty) so the user has a path
-        // to query historical data.
-        mode = "range";
-        clearAllColumns();
-      }
-      updateModeUi();
+    setStatus(_status) {
+      // Always-live: no Range fallback. EventsClient handles WS reconnect
+      // exponentially; the UI doesn't flip modes.
+    },
+    stop() {
+      stopped = true;
+      if (metricsTimer !== null) globalThis.clearTimeout(metricsTimer);
+      globalThis.clearInterval(tickerInterval);
     },
   };
-}
-
-function renderTxDetail(d: TransactionDetail): string {
-  const sendersHtml = d.senders.length
-    ? d.senders.map((s) =>
-      `<span class="mono" title="${escapeHtml(s)}">${
-        escapeHtml(truncate(s, 8, 6))
-      }</span>`
-    ).join(", ")
-    : '<span style="color:var(--text-muted)">unknown</span>';
-  const receiversHtml = d.receivers.length
-    ? d.receivers.map((r) =>
-      `<span class="mono" title="${escapeHtml(r)}">${
-        escapeHtml(truncate(r, 8, 6))
-      }</span>`
-    ).join(", ")
-    : '<span style="color:var(--text-muted)">unknown</span>';
-  const fromFlags = d.jurisdictions.from.length
-    ? flags(d.jurisdictions.from)
-    : '<span style="color:var(--text-muted)">—</span>';
-  const toFlags = d.jurisdictions.to.length
-    ? flags(d.jurisdictions.to)
-    : '<span style="color:var(--text-muted)">—</span>';
-  const utxosHtml = d.utxos.length
-    ? d.utxos.map((u) =>
-      `<li><span class="mono" title="${escapeHtml(u.id)}">${
-        escapeHtml(truncate(u.id))
-      }</span> — ${fmtAmountStroops(u.amount)} XLM${
-        u.spent ? " (spent)" : ""
-      }</li>`
-    ).join("")
-    : '<li style="color:var(--text-muted)">No UTXOs in this tx</li>';
-  return `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
-      <div style="font-weight:600">Transaction</div>
-      <span class="badge badge-${
-    d.status === "VERIFIED" ? "active" : "pending"
-  }">${escapeHtml(d.status)}</span>
-    </div>
-    <p class="mono" style="font-size:0.75rem;color:var(--text-muted);word-break:break-all;margin:0 0 0.75rem">${
-    escapeHtml(d.id)
-  }</p>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;font-size:0.85rem">
-      <div>
-        <span class="stat-label">Mempool</span>
-        <div>${fmtTime(d.timeline.mempoolAt)}</div>
-      </div>
-      <div>
-        <span class="stat-label">Submitted</span>
-        <div>${fmtTime(d.timeline.submittedAt)}</div>
-      </div>
-      <div>
-        <span class="stat-label">Verified</span>
-        <div>${fmtTime(d.timeline.verifiedAt)}</div>
-      </div>
-      <div>
-        <span class="stat-label">From</span>
-        <div style="margin-top:0.25rem">${fromFlags}</div>
-      </div>
-      <div>
-        <span class="stat-label">To</span>
-        <div style="margin-top:0.25rem">${toFlags}</div>
-      </div>
-      <div>
-        <span class="stat-label">Ledger</span>
-        <div>${escapeHtml(d.ledgerSequence)}</div>
-      </div>
-      <div>
-        <span class="stat-label">Sender(s)</span>
-        <div>${sendersHtml}</div>
-      </div>
-      <div style="grid-column:span 2">
-        <span class="stat-label">Receiver(s)</span>
-        <div>${receiversHtml}</div>
-      </div>
-    </div>
-    <div style="margin-top:0.75rem">
-      <span class="stat-label">UTXOs (${d.utxos.length})</span>
-      <ul style="font-size:0.8rem;margin:0.4rem 0 0;padding-left:1.2rem">${utxosHtml}</ul>
-    </div>
-  `;
-}
-
-function renderUtxoDetail(u: UtxoInfo | undefined, utxoId: string): string {
-  if (!u) {
-    return `
-      <div style="font-weight:600;margin-bottom:0.5rem">UTXO</div>
-      <p class="mono" style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">${
-      escapeHtml(utxoId)
-    }</p>
-    `;
-  }
-  return `
-    <div style="font-weight:600;margin-bottom:0.5rem">UTXO</div>
-    <p class="mono" style="font-size:0.75rem;color:var(--text-muted);word-break:break-all;margin:0 0 0.75rem">${
-    escapeHtml(u.id)
-  }</p>
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;font-size:0.85rem">
-      <div>
-        <span class="stat-label">Amount</span>
-        <div>${fmtAmountStroops(u.amount)} XLM</div>
-      </div>
-      <div>
-        <span class="stat-label">Created at bundle</span>
-        <div class="mono" style="font-size:0.75rem">${
-    escapeHtml(truncate(u.createdAtBundleId))
-  }</div>
-      </div>
-      <div>
-        <span class="stat-label">Created</span>
-        <div>${escapeHtml(new Date(u.createdAt).toLocaleString())}</div>
-      </div>
-    </div>
-  `;
-}
-
-function renderWithdrawDetail(d: TransactionDetail, recipient: string): string {
-  const totalStroops = d.withdraws.reduce(
-    (acc, w) => acc + BigInt(w.amount),
-    0n,
-  );
-  const utxos = d.utxos.filter((u) => u.spent);
-  const utxosHtml = utxos.length
-    ? utxos.map((u) =>
-      `<li><span class="mono" title="${escapeHtml(u.id)}">${
-        escapeHtml(truncate(u.id))
-      }</span> — ${fmtAmountStroops(u.amount)} XLM</li>`
-    ).join("")
-    : `<li style="color:var(--text-muted)">No UTXOs in tx record</li>`;
-  return `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
-      <div style="font-weight:600">Withdraw</div>
-      <span class="badge badge-${
-    d.status === "VERIFIED" ? "active" : "pending"
-  }">${escapeHtml(d.status)}</span>
-    </div>
-    <p style="font-size:0.85rem;margin:0 0 0.75rem">
-      <span style="color:var(--text-muted)">Tx</span> <span class="mono">${
-    escapeHtml(truncate(d.id))
-  }</span>
-    </p>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;font-size:0.85rem">
-      <div>
-        <span class="stat-label">Recipient</span>
-        <div class="mono" style="font-size:0.75rem;word-break:break-all" title="${
-    escapeHtml(recipient)
-  }">${escapeHtml(truncate(recipient, 8, 6))}</div>
-      </div>
-      <div>
-        <span class="stat-label">Total withdrawn</span>
-        <div>${fmtAmountStroops(totalStroops.toString())} XLM</div>
-      </div>
-      <div>
-        <span class="stat-label">UTXOs spent</span>
-        <div>${utxos.length}</div>
-      </div>
-      <div>
-        <span class="stat-label">Submitted</span>
-        <div>${fmtTime(d.timeline.submittedAt)}</div>
-      </div>
-      <div>
-        <span class="stat-label">Verified</span>
-        <div>${fmtTime(d.timeline.verifiedAt)}</div>
-      </div>
-      <div>
-        <span class="stat-label">Ledger</span>
-        <div>${escapeHtml(d.ledgerSequence)}</div>
-      </div>
-    </div>
-    <div style="margin-top:0.75rem">
-      <span class="stat-label">Withdrawn UTXOs</span>
-      <ul style="font-size:0.8rem;margin:0.4rem 0 0;padding-left:1.2rem">${utxosHtml}</ul>
-    </div>
-  `;
 }
 
 export const providerView = page(renderContent);
