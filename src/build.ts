@@ -86,7 +86,7 @@ await esbuild.build({
   target: "es2022",
   supported: { decorators: false },
   minify: isProduction,
-  sourcemap: !isProduction,
+  sourcemap: true,
   define: {
     "__APP_VERSION__": JSON.stringify(version),
     "__DEV_MODE__": JSON.stringify(!isProduction),
