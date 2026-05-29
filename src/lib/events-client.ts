@@ -32,6 +32,9 @@ export type ProviderEvent =
       weight: number;
       channelContractId: string;
       newSlot: boolean;
+      entityName: string | null;
+      jurisdictions: string[];
+      amount: string | null;
     };
   }
   | {
