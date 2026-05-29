@@ -1,13 +1,16 @@
 import { page } from "../components/page.ts";
 import { escapeHtml } from "../lib/dom.ts";
 import {
-  discoverCouncil,
+  type BundleDetail,
+  getBundleDetail,
   getMetrics,
   getTreasury,
   listPps,
+  listRecentBundles,
   type MembershipInfo,
   type MetricsSnapshot,
   type PpInfo,
+  type RecentBundleSummary,
   type TreasuryData,
 } from "../lib/api.ts";
 import { getRouteParams, navigate, onCleanup } from "../lib/router.ts";
@@ -39,13 +42,8 @@ function flags(codes: string[]): string {
   ).join(" ");
 }
 
-function mergedJurisdictions(m: MembershipInfo): string[] {
-  return Array.from(
-    new Set([
-      ...(m.councilJurisdictions ?? []),
-      ...(m.claimedJurisdictions ?? []),
-    ].map((c) => c.toUpperCase())),
-  );
+function ppClaimedJurisdictions(m: MembershipInfo): string[] {
+  return (m.claimedJurisdictions ?? []).map((c) => c.toUpperCase());
 }
 
 function fmtAmountStroops(stroops: string): string {
@@ -118,38 +116,18 @@ async function renderContent(): Promise<HTMLElement> {
   const opexBalance = xlm ? `${parseFloat(xlm.balance).toFixed(2)} XLM` : "—";
   const name = pp.label || truncate(pp.publicKey);
 
-  // Sibling-PP lists per council: one POST /dashboard/council/discover per
-  // membership, in parallel, cached in-memory for the view's lifetime.
-  // Best-effort — failures render the council node with no sibling dots.
-  const siblingsByCouncil = new Map<
-    string,
-    Array<{ publicKey: string; label: string | null }>
-  >();
-  const discoveryResults = await Promise.allSettled(
-    memberships.map(async (m) => {
-      const info = await discoverCouncil(m.councilUrl);
-      return { councilUrl: m.councilUrl, providers: info.providers };
-    }),
-  );
-  for (const r of discoveryResults) {
-    if (r.status === "fulfilled") {
-      siblingsByCouncil.set(r.value.councilUrl, r.value.providers);
-    }
-  }
-
   root.innerHTML = renderTemplate(name, opexBalance, memberships);
 
   wireHeader(root, pp);
   wireFund(root, pp.publicKey);
   wireCouncils(root);
 
-  // v2 zones (counter strip / topology / activity feed / sparklines).
+  // v2 zones (counter strip / recent bundles / activity feed / sparklines).
   const zones = setupV2Zones({
     root,
     ppPublicKey,
     name,
     memberships,
-    siblingsByCouncil,
   });
 
   const client = new EventsClient({
@@ -196,8 +174,9 @@ function renderTemplate(
       </div>
     </div>
 
+    <h3 style="margin:0 0 0.5rem">OpEx</h3>
     <div style="padding:0.6rem 0.9rem;margin-bottom:1.5rem;border:1px solid var(--border);border-radius:8px;background:var(--surface);display:inline-flex;flex-direction:column;align-items:flex-start;gap:0.35rem;text-align:left">
-      <span style="color:var(--text-muted);font-size:0.7rem;letter-spacing:0.05em;text-transform:uppercase">OpEx Balance</span>
+      <span style="color:var(--text-muted);font-size:0.7rem;letter-spacing:0.05em;text-transform:uppercase">Balance</span>
       <span style="font-size:1.1rem;font-weight:600">${
     escapeHtml(opexBalance)
   }</span>
@@ -207,79 +186,85 @@ function renderTemplate(
     <h3 style="margin:0 0 0.5rem">Councils</h3>
     <div id="councils" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin-bottom:2rem">${councilCards}</div>
 
-    <div class="dashboard-v2" style="display:grid;grid-template-columns:1fr 280px;grid-template-areas:'counter counter' 'topology feed' 'sparklines sparklines';gap:0.75rem">
+    <h3 style="margin:0 0 0.5rem">Dashboard <span style="font-weight:400;font-size:0.78rem;color:var(--text-muted)">(last 6 hours)</span></h3>
+    <div class="dashboard-v2" style="display:grid;grid-template-columns:1fr 280px;grid-template-rows:auto 600px auto;grid-template-areas:'counter counter' 'bundles feed' 'sparklines sparklines';gap:0.75rem">
       <div class="zone-counter" style="grid-area:counter;display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem">
-        ${
-    renderCounterBox("throughput", "Throughput", "last 15m", "bundles/min")
-  }
-        ${renderCounterBox("latency", "Avg Latency", "last 100 bundles", "ms")}
-        ${renderCounterBox("queue", "Queue Depth", "now", "in mempool")}
-        ${renderCounterBox("error-rate", "Error Rate", "1h", "of bundles")}
+        ${renderCounterBox("throughput", "Throughput", "bundles/min")}
+        ${renderCounterBox("latency", "Avg Latency", "ms")}
+        ${renderCounterBox("queue", "Queue Peak", "in mempool")}
+        ${renderCounterBox("error-rate", "Error Rate", "of bundles")}
       </div>
 
-      <div class="zone-topology stat-card" style="grid-area:topology;padding:0.75rem;overflow:auto">
-        ${renderTopologyContainer(name, memberships)}
+      <div class="zone-bundles stat-card" style="grid-area:bundles;padding:0.75rem;display:flex;flex-direction:column;min-height:0">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:0.75rem;margin-bottom:0.6rem">
+          <div style="font-weight:600">Operations</div>
+          <div id="preview-bundles-counts" style="font-size:0.78rem;color:var(--text-muted)"></div>
+        </div>
+        <div id="preview-bundles-table" style="flex:1;overflow:auto;min-height:0"></div>
       </div>
 
-      <div class="zone-feed stat-card" style="grid-area:feed;padding:0.75rem;min-height:${TOPOLOGY_HEIGHT}px;display:flex;flex-direction:column">
-        <div style="font-weight:600;margin-bottom:0.5rem">Activity</div>
-        <div id="activity-feed" style="flex:1;display:flex;flex-direction:column;gap:0.4rem;overflow:hidden"></div>
-        <div id="activity-feed-empty" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:0.8rem;text-align:center">No events yet.</div>
+      <div class="zone-feed stat-card" style="grid-area:feed;padding:0.75rem;display:flex;flex-direction:column;min-height:0">
+        <div style="font-weight:600;margin-bottom:0.5rem">Live feed</div>
+        <div id="activity-feed" style="flex:1;display:flex;flex-direction:column;gap:6px;overflow:hidden"></div>
+        <div id="activity-feed-empty" style="flex:1;display:flex;color:var(--text-muted);font-size:0.8rem;text-align:center;padding-top:20px">Nothing happening</div>
       </div>
 
       <div class="zone-sparklines" style="grid-area:sparklines;display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;min-height:180px">
-        ${
-    renderSparklineBox("throughput", "Throughput (bundles/min)", "#1c7ed6")
-  }
-        ${
-    renderSparklineBox("latency", "Latency mempool→verified (s)", "#7950f2")
-  }
-        ${renderSparklineBox("queue", "Queue depth", "#2f9e44")}
+        ${renderSparklineBox("throughput", "Throughput")}
+        ${renderSparklineBox("latency", "Latency")}
+        ${renderSparklineBox("queue", "Queue depth")}
       </div>
     </div>
   `;
 }
 
-function renderCounterBox(
-  id: string,
-  label: string,
-  window: string,
-  unit: string,
-): string {
+function renderCounterBox(id: string, label: string, unit: string): string {
   return `
-    <div class="zone-counter-box stat-card" style="padding:0.6rem 0.8rem;border-color:#1971c2;background:#e7f5ff">
-      <div style="font-size:0.65rem;letter-spacing:0.06em;text-transform:uppercase;color:#1864ab;font-weight:600">${
+    <div class="zone-counter-box stat-card" style="padding:0.6rem 0.8rem">
+      <div style="font-size:0.65rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);font-weight:600">${
     escapeHtml(label)
   }</div>
-      <div style="font-size:0.65rem;color:#555">${escapeHtml(window)}</div>
       <div style="display:flex;align-items:baseline;gap:0.3rem;margin-top:0.2rem">
-        <span id="counter-${id}-value" style="font-size:1.4rem;font-weight:700;color:#1864ab">—</span>
-        <span style="font-size:0.65rem;color:#555">${escapeHtml(unit)}</span>
+        <span id="counter-${id}-value" style="font-size:1.4rem;font-weight:700;color:var(--text)">—</span>
+        <span style="font-size:0.65rem;color:var(--text-muted)">${
+    escapeHtml(unit)
+  }</span>
       </div>
     </div>
   `;
 }
 
-function renderSparklineBox(id: string, label: string, color: string): string {
+function renderSparklineBox(id: string, label: string): string {
   return `
     <div class="zone-sparkline-box stat-card" style="padding:0.6rem 0.8rem;display:flex;flex-direction:column;gap:0.3rem">
-      <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em">${
+      <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px">${
     escapeHtml(label)
   }</div>
-      <svg id="sparkline-${id}" viewBox="0 0 ${SPARKLINE_WIDTH} ${SPARKLINE_HEIGHT}" preserveAspectRatio="none" style="flex:1;width:100%;height:auto;min-height:120px">
-        <polyline fill="none" stroke="${color}" stroke-width="1.5" points=""></polyline>
-        <text x="${SPARKLINE_WIDTH / 2}" y="${
-    SPARKLINE_HEIGHT /
-    2
+      <div style="flex:1;display:flex;gap:4px;min-height:120px">
+        <div style="display:flex;flex-direction:column;justify-content:space-between;font-size:0.6rem;color:var(--border);text-align:right;min-width:24px;padding:1px 0">
+          <span id="sparkline-${id}-max">—</span>
+          <span id="sparkline-${id}-min">—</span>
+        </div>
+        <svg id="sparkline-${id}" viewBox="0 0 ${SPARKLINE_WIDTH} ${SPARKLINE_HEIGHT}" preserveAspectRatio="none" style="flex:1;width:100%;height:auto">
+          <line x1="0" y1="0" x2="0" y2="${SPARKLINE_HEIGHT}" stroke="var(--border)" stroke-width="1" vector-effect="non-scaling-stroke"></line>
+          <line x1="0" y1="${SPARKLINE_HEIGHT}" x2="${SPARKLINE_WIDTH}" y2="${SPARKLINE_HEIGHT}" stroke="var(--border)" stroke-width="1" vector-effect="non-scaling-stroke"></line>
+          <polyline fill="none" stroke="${SPARKLINE_COLOR}" stroke-width="1.5" vector-effect="non-scaling-stroke" points=""></polyline>
+          <text x="${SPARKLINE_WIDTH / 2}" y="${
+    SPARKLINE_HEIGHT / 2
   }" text-anchor="middle" dominant-baseline="middle" fill="var(--text-muted)" font-size="10" id="sparkline-${id}-empty">—</text>
-      </svg>
+        </svg>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:0.6rem;color:var(--border);padding-left:28px">
+        <span>${Math.floor(SPARKLINE_RANGE_MIN / 60)}h ago</span>
+        <span>now</span>
+      </div>
     </div>
   `;
 }
 
 function renderCouncilCard(m: MembershipInfo): string {
-  const merged = mergedJurisdictions(m);
-  const flagsHtml = merged.length ? flags(merged) : "—";
+  const claimed = ppClaimedJurisdictions(m);
+  const flagsHtml = claimed.length ? flags(claimed) : "—";
   const assetChips = m.channels.length
     ? m.channels.map((c) =>
       `<span class="badge badge-active" style="margin-right:0.25rem">${
@@ -363,39 +348,32 @@ function wireCouncils(_root: HTMLElement): void {
 }
 
 // -----------------------------------------------------------------------------
-// v2 zones — topology + counter strip + activity feed + sparklines
+// v2 zones — counter strip + recent bundles + activity feed + sparklines
 // All zones are always-live: no Range mode, no Search, no mode toggle.
 // -----------------------------------------------------------------------------
 
-const TOPOLOGY_WIDTH = 850;
-const TOPOLOGY_HEIGHT = 470;
-const TOPOLOGY_CENTER_X = TOPOLOGY_WIDTH / 2;
-const TOPOLOGY_CENTER_Y = TOPOLOGY_HEIGHT / 2;
-const COUNCIL_RING_RADIUS = 180;
-const SIBLING_DOTS_VISIBLE = 10;
-
 const SPARKLINE_WIDTH = 300;
 const SPARKLINE_HEIGHT = 80;
+const SPARKLINE_COLOR = "#1c7ed6";
 
 const METRICS_POLL_MS = 60_000;
-const SPARKLINE_RANGE_MIN = 60;
+const SPARKLINE_RANGE_MIN = 360;
 const FEED_MAX_CARDS = 5;
 const FEED_CARD_LIFETIME_MS = 8_000;
 const FEED_CARD_FADE_MS = 300;
-const PULSE_DURATION_MS = 1_000;
-const COUNCIL_ACTIVITY_WINDOW_MS = 5 * 60_000;
-const COUNCIL_ACTIVITY_HIGH = 10;
-const COUNCIL_ACTIVITY_LOW = 3;
 
-const PULSE_COLORS: Record<ProviderEvent["kind"], string> = {
-  "bundle.deposit_completed": "#fab005",
-  "mempool.bundle_added": "#1c7ed6",
+// Event colors mirror the table's stage colors so the visual language is
+// consistent (queued amber, submitting blue, completed green, failed red,
+// expired gray). Non-bundle events (channel joins/leaves) stay neutral gray.
+const FEED_COLORS: Record<ProviderEvent["kind"], string> = {
+  "mempool.bundle_added": "#f59f00",
   "mempool.bundle_expired": "#868e96",
-  "executor.transaction_submitted": "#37b24d",
-  "executor.execution_failed": "#fa5252",
-  "verifier.bundle_completed": "#7950f2",
-  "verifier.bundle_failed": "#fa5252",
-  "bundle.withdraw_completed": "#fd7e14",
+  "executor.transaction_submitted": "#1c7ed6",
+  "executor.execution_failed": "#e03131",
+  "verifier.bundle_completed": "#2f9e44",
+  "verifier.bundle_failed": "#e03131",
+  "bundle.deposit_completed": "#2f9e44",
+  "bundle.withdraw_completed": "#2f9e44",
   "channel.provider_added": "#868e96",
   "channel.provider_removed": "#868e96",
 };
@@ -413,91 +391,11 @@ const FEED_LABELS: Record<ProviderEvent["kind"], string> = {
   "channel.provider_removed": "Channel left",
 };
 
-function councilNodePosition(
-  index: number,
-  total: number,
-): { x: number; y: number } {
-  const theta = -Math.PI / 2 + (2 * Math.PI * index) / Math.max(total, 1);
-  return {
-    x: TOPOLOGY_CENTER_X + COUNCIL_RING_RADIUS * Math.cos(theta),
-    y: TOPOLOGY_CENTER_Y + COUNCIL_RING_RADIUS * Math.sin(theta),
-  };
-}
-
-function renderTopologyContainer(
-  name: string,
-  memberships: MembershipInfo[],
-): string {
-  const positions = memberships.map((_, i) =>
-    councilNodePosition(i, memberships.length)
-  );
-
-  const edges = positions
-    .map(
-      (p, i) =>
-        `<line data-council-edge="${i}" x1="${TOPOLOGY_CENTER_X}" y1="${TOPOLOGY_CENTER_Y}" x2="${p.x}" y2="${p.y}" stroke="var(--border)" stroke-width="2" />`,
-    )
-    .join("");
-
-  const councilNodeBoxes = memberships
-    .map((m, i) => renderCouncilNodeBox(m, i, positions[i]))
-    .join("");
-
-  const emptyState = memberships.length === 0
-    ? `<div class="topology-empty" style="position:absolute;left:50%;top:80%;transform:translate(-50%,-50%);color:var(--text-muted);font-size:0.85rem;text-align:center">No council memberships yet.</div>`
-    : "";
-
-  return `
-    <div id="topology" class="topology" style="position:relative;width:${TOPOLOGY_WIDTH}px;height:${TOPOLOGY_HEIGHT}px;margin:0 auto">
-      <svg id="topology-svg" viewBox="0 0 ${TOPOLOGY_WIDTH} ${TOPOLOGY_HEIGHT}" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
-        ${edges}
-      </svg>
-      <div class="topology-my-pp" style="position:absolute;left:${TOPOLOGY_CENTER_X}px;top:${TOPOLOGY_CENTER_Y}px;transform:translate(-50%,-50%);width:160px;height:160px;background:#fff3bf;color:#1a1a1a;border:3px solid #1a1a1a;border-radius:50%;display:flex;align-items:center;justify-content:center;text-align:center;padding:0.5rem">
-        <span style="font-weight:700;font-size:0.9rem;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${
-    escapeHtml(name)
-  }">${escapeHtml(name)}</span>
-      </div>
-      ${councilNodeBoxes}
-      ${emptyState}
-    </div>
-  `;
-}
-
-function renderCouncilNodeBox(
-  m: MembershipInfo,
-  index: number,
-  pos: { x: number; y: number },
-): string {
-  const merged = mergedJurisdictions(m);
-  const flagsHtml = merged.length ? flags(merged) : "";
-  const assetCount = m.channels.length;
-  return `
-    <div class="topology-council-node" data-council-index="${index}" data-activity="idle" style="position:absolute;left:${pos.x}px;top:${pos.y}px;transform:translate(-50%,-50%);width:170px;background:#e9ecef;border:2px solid #868e96;border-radius:14px;padding:0.5rem 0.6rem;display:flex;flex-direction:column;gap:0.3rem">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
-        <span style="font-weight:600;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${
-    escapeHtml(m.councilName ?? "—")
-  }">${escapeHtml(m.councilName ?? "—")}</span>
-        <span style="font-size:0.85rem">${flagsHtml}</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;color:#555">
-        <span class="topology-activity-tag" style="background:#fff;border:1px solid currentColor;padding:0.05rem 0.35rem;border-radius:10px">idle</span>
-        <span>${assetCount} asset${assetCount === 1 ? "" : "s"}</span>
-      </div>
-      <div class="topology-sibling-dots" data-council-siblings="${index}" style="display:flex;flex-wrap:wrap;gap:3px;min-height:14px"></div>
-      <div class="topology-sibling-caption" data-council-caption="${index}" style="font-size:0.65rem;color:#555;text-align:center">—</div>
-    </div>
-  `;
-}
-
 interface SetupOpts {
   root: HTMLElement;
   ppPublicKey: string;
   name: string;
   memberships: MembershipInfo[];
-  siblingsByCouncil: Map<
-    string,
-    Array<{ publicKey: string; label: string | null }>
-  >;
 }
 
 interface ZoneHandle {
@@ -507,144 +405,50 @@ interface ZoneHandle {
 }
 
 function setupV2Zones(opts: SetupOpts): ZoneHandle {
-  const { root, ppPublicKey, memberships, siblingsByCouncil } = opts;
+  const { root, ppPublicKey, memberships } = opts;
 
-  // Sibling dots are rendered post-mount so we don't have to escape into the
-  // big template string.
-  memberships.forEach((m, i) => {
-    const dotsEl = root.querySelector(
-      `[data-council-siblings="${i}"]`,
-    ) as HTMLElement | null;
-    const captionEl = root.querySelector(
-      `[data-council-caption="${i}"]`,
-    ) as HTMLElement | null;
-    if (!dotsEl || !captionEl) return;
-    const siblings = siblingsByCouncil.get(m.councilUrl) ?? [];
-    const visible = siblings.slice(0, SIBLING_DOTS_VISIBLE);
-    const overflow = siblings.length - visible.length;
-    dotsEl.innerHTML = visible.map((s) =>
-      `<span class="topology-sibling-dot" title="${
-        escapeHtml(s.label ?? s.publicKey)
-      }" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#868e96"></span>`
-    ).join("") +
-      (overflow > 0
-        ? `<span style="font-size:0.65rem;color:#555;align-self:center">+${overflow}</span>`
-        : "");
-    captionEl.textContent = siblings.length === 0
-      ? "— no sibling PPs yet —"
-      : `(${siblings.length} sibling PP${siblings.length === 1 ? "" : "s"})`;
-  });
-
-  const svg = root.querySelector("#topology-svg") as SVGSVGElement | null;
   const feedEl = root.querySelector("#activity-feed") as HTMLElement | null;
   const feedEmptyEl = root.querySelector(
     "#activity-feed-empty",
   ) as HTMLElement | null;
 
-  // channelContractId → council index + label, for routing pulses to the right
-  // edge and resolving feed-card subtitles. Stable for the view's lifetime.
+  // channelContractId → council name, for resolving feed-card subtitles and
+  // recent-bundles table labels. Stable for the view's lifetime.
   const channelToCouncil = new Map<
     string,
-    { index: number; councilName: string | null }
+    {
+      index: number;
+      councilName: string | null;
+      assetCode: string;
+    }
   >();
   memberships.forEach((m, i) => {
     for (const ch of m.channels) {
       channelToCouncil.set(ch.channelContractId, {
         index: i,
         councilName: m.councilName,
+        assetCode: ch.assetCode,
       });
     }
   });
 
-  // Per-council rolling pulse timestamps; entries older than the activity
-  // window are dropped on each event.
-  const councilPulses = new Map<number, number[]>();
-
-  function bucketActivity(count: number): {
-    label: "high" | "low" | "idle";
-    fill: string;
-    stroke: string;
-  } {
-    if (count >= COUNCIL_ACTIVITY_HIGH) {
-      return { label: "high", fill: "#d3f9d8", stroke: "#2f9e44" };
-    }
-    if (count >= COUNCIL_ACTIVITY_LOW) {
-      return { label: "low", fill: "#fff3bf", stroke: "#f59f00" };
-    }
-    return { label: "idle", fill: "#e9ecef", stroke: "#868e96" };
-  }
-
-  function recolorCouncil(index: number): void {
-    const stamps = councilPulses.get(index) ?? [];
-    const cutoff = Date.now() - COUNCIL_ACTIVITY_WINDOW_MS;
-    const fresh = stamps.filter((t) => t >= cutoff);
-    councilPulses.set(index, fresh);
-    const node = root.querySelector(
-      `[data-council-index="${index}"]`,
-    ) as HTMLElement | null;
-    if (!node) return;
-    const { label, fill, stroke } = bucketActivity(fresh.length);
-    node.style.background = fill;
-    node.style.borderColor = stroke;
-    node.dataset.activity = label;
-    const tag = node.querySelector(
-      ".topology-activity-tag",
-    ) as HTMLElement | null;
-    if (tag) {
-      tag.textContent = label;
-      tag.style.color = stroke;
-    }
-  }
-
-  function animatePulse(councilIndex: number, color: string): void {
-    if (!svg) return;
-    const pos = councilNodePosition(councilIndex, memberships.length);
-    const circle = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "circle",
-    );
-    circle.setAttribute("r", "7");
-    circle.setAttribute("fill", color);
-    circle.setAttribute("cx", String(TOPOLOGY_CENTER_X));
-    circle.setAttribute("cy", String(TOPOLOGY_CENTER_Y));
-    circle.setAttribute("opacity", "0");
-    svg.appendChild(circle);
-    const t0 = performance.now();
-    function step(now: number): void {
-      const t = Math.min(1, (now - t0) / PULSE_DURATION_MS);
-      const x = TOPOLOGY_CENTER_X + (pos.x - TOPOLOGY_CENTER_X) * t;
-      const y = TOPOLOGY_CENTER_Y + (pos.y - TOPOLOGY_CENTER_Y) * t;
-      const alpha = t < 0.1 ? t / 0.1 : 1 - (t - 0.1) / 0.9;
-      circle.setAttribute("cx", String(x));
-      circle.setAttribute("cy", String(y));
-      circle.setAttribute("opacity", String(Math.max(0, Math.min(1, alpha))));
-      if (t < 1) requestAnimationFrame(step);
-      else circle.remove();
-    }
-    requestAnimationFrame(step);
-  }
-
-  function pushFeedCard(event: ProviderEvent): void {
+  function pushFeedCard(
+    event: ProviderEvent,
+    opts: { persistent?: boolean } = {},
+  ): void {
     if (!feedEl) return;
-    const channelId = (event.payload as { channelContractId?: string | null })
-      .channelContractId ??
-      null;
-    const matched = channelId ? channelToCouncil.get(channelId) : undefined;
-    const councilLabel = matched?.councilName ?? "—";
-    const color = PULSE_COLORS[event.kind];
+    const color = FEED_COLORS[event.kind];
     const kindLabel = FEED_LABELS[event.kind];
 
     let amountHtml = "";
     if (event.kind === "bundle.deposit_completed") {
-      amountHtml =
-        `<span style="margin-left:auto;font-size:0.7rem;color:#333">${
-          fmtAmountStroops(event.payload.amount)
-        } XLM</span>`;
+      amountHtml = `<span style="font-size:0.7rem;color:#333">${
+        fmtAmountStroops(event.payload.amount)
+      } XLM</span>`;
     } else if (event.kind === "bundle.withdraw_completed") {
-      amountHtml =
-        `<span style="margin-left:auto;font-size:0.7rem;color:#333">${
-          fmtAmountStroops(event.payload.amount)
-        } XLM</span>`;
+      amountHtml = `<span style="font-size:0.7rem;color:#333">${
+        fmtAmountStroops(event.payload.amount)
+      } XLM</span>`;
     }
 
     const ts = Date.now();
@@ -652,20 +456,16 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
     card.className = "activity-feed-card";
     card.dataset.ts = String(ts);
     card.style.cssText =
-      `border-left:4px solid ${color};background:var(--surface);padding:0.4rem 0.55rem;border-radius:6px;font-size:0.8rem;opacity:0;transition:opacity ${FEED_CARD_FADE_MS}ms`;
+      `border-left:1px solid ${color};background:var(--surface);padding:0.4rem 0.55rem;font-size:0.8rem;opacity:0;transition:opacity ${FEED_CARD_FADE_MS}ms`;
     card.innerHTML = `
       <div style="display:flex;align-items:center;gap:0.5rem">
         <span style="font-weight:600">${escapeHtml(kindLabel)}</span>
         ${amountHtml}
-      </div>
-      <div style="display:flex;justify-content:space-between;color:#555;font-size:0.7rem;margin-top:0.15rem">
-        <span title="${escapeHtml(channelId ?? "")}">${
-      escapeHtml(councilLabel)
-    }</span>
-        <span class="activity-feed-relative">just now</span>
+        <span class="activity-feed-relative" style="margin-left:auto;color:#555;font-size:0.7rem">just now</span>
       </div>
     `;
     feedEl.prepend(card);
+    feedEl.style.display = "flex";
     if (feedEmptyEl) feedEmptyEl.style.display = "none";
 
     requestAnimationFrame(() => {
@@ -678,16 +478,23 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
       feedEl.lastElementChild?.remove();
     }
 
+    if (opts.persistent) return;
+
     setTimeout(() => {
       card.style.opacity = "0";
       setTimeout(() => {
         card.remove();
         if (feedEl.childElementCount === 0 && feedEmptyEl) {
-          feedEmptyEl.style.display = "";
+          feedEl.style.display = "none";
+          feedEmptyEl.style.display = "flex";
         }
       }, FEED_CARD_FADE_MS);
     }, FEED_CARD_LIFETIME_MS);
   }
+
+  // On mount, the feed has no children — hide it so the empty placeholder
+  // (which has flex:1) takes the full feed area and centers properly.
+  if (feedEl) feedEl.style.display = "none";
 
   // Counter strip + sparklines: /dashboard/metrics polled every 60s (same
   // cadence as the platform's MetricsCollector snapshot loop).
@@ -695,16 +502,18 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
   function applyMetrics(resp: { snapshots: MetricsSnapshot[] }): void {
     const snapshots = resp.snapshots;
 
-    // Snapshots arrive newest→oldest from the handler.
-    setCounter("queue", snapshots[0]?.queueDepth ?? null, (v) => String(v));
+    // QUEUE DEPTH (peak over the 6h window): the 60s collector snapshots a
+    // point-in-time mempool count, so a fast-draining pipeline often reads
+    // zero between cycles. Peak preserves the worst congestion seen.
+    const queueValues = snapshots
+      .map((s) => s.queueDepth)
+      .filter((v): v is number => typeof v === "number");
+    const peakQueue = queueValues.length > 0 ? Math.max(...queueValues) : null;
+    setCounter("queue", peakQueue, (v) => String(v));
 
-    // THROUGHPUT (last 15m): mean of `throughputPerMin` across snapshots in
-    // the last 15 minutes.
-    const cutoff15 = Date.now() - 15 * 60_000;
-    const recent15 = snapshots.filter(
-      (s) => new Date(s.recordedAt).getTime() >= cutoff15,
-    );
-    const throughputValues = recent15
+    // THROUGHPUT (last 6h): mean of `throughputPerMin` across all snapshots
+    // in the window.
+    const throughputValues = snapshots
       .map((s) => s.throughputPerMin)
       .filter((v): v is number => typeof v === "number");
     const meanThroughput = throughputValues.length > 0
@@ -712,21 +521,19 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
       : null;
     setCounter("throughput", meanThroughput, (v) => v.toFixed(2));
 
-    // AVG LATENCY (last 100 bundles): weighted avg of avgProcessingMs across
-    // newest snapshots until cumulative bundlesCompleted ≥ 100. Falls back to
-    // whatever we have if fewer than 100 completed in the window.
+    // AVG LATENCY (last 6h): weighted avg of avgProcessingMs across every
+    // snapshot in the window, weighted by bundlesCompleted.
     let weightSum = 0;
     let weightedLatency = 0;
     for (const s of snapshots) {
       if (s.avgProcessingMs == null) continue;
       weightedLatency += s.avgProcessingMs * s.bundlesCompleted;
       weightSum += s.bundlesCompleted;
-      if (weightSum >= 100) break;
     }
     const avgLatency = weightSum > 0 ? weightedLatency / weightSum : null;
     setCounter("latency", avgLatency, (v) => v.toFixed(0));
 
-    // ERROR RATE (1h): bundlesFailed / (bundlesCompleted + bundlesFailed +
+    // ERROR RATE (last 6h): bundlesFailed / (bundlesCompleted + bundlesFailed +
     // bundlesExpired). Requires bundlesFailed on every snapshot — pre-PR-104
     // platforms omit the field, in which case we show "—" rather than a
     // misleading 0%.
@@ -784,6 +591,12 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
     const empty = svgEl.querySelector(`#sparkline-${id}-empty`) as
       | SVGTextElement
       | null;
+    const maxLabel = root.querySelector(
+      `#sparkline-${id}-max`,
+    ) as HTMLElement | null;
+    const minLabel = root.querySelector(
+      `#sparkline-${id}-min`,
+    ) as HTMLElement | null;
     if (!polyline) return;
 
     // Server returns newest→oldest; reverse so x grows with time.
@@ -793,6 +606,8 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
     if (values.every((v) => v == null)) {
       polyline.setAttribute("points", "");
       if (empty) empty.style.display = "";
+      if (maxLabel) maxLabel.textContent = "—";
+      if (minLabel) minLabel.textContent = "—";
       return;
     }
     if (empty) empty.style.display = "none";
@@ -815,6 +630,17 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
       "points",
       pairs.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "),
     );
+    if (maxLabel) maxLabel.textContent = fmtAxisValue(maxV);
+    if (minLabel) minLabel.textContent = fmtAxisValue(minV);
+  }
+
+  function fmtAxisValue(v: number): string {
+    if (!Number.isFinite(v)) return "—";
+    if (v === 0) return "0";
+    const abs = Math.abs(v);
+    if (abs >= 100) return v.toFixed(0);
+    if (abs >= 10) return v.toFixed(1);
+    return v.toFixed(2);
   }
 
   // Refresh activity-feed cards' "Xs ago" subtitle so the relative time stays
@@ -849,20 +675,357 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
   }
   void pollMetrics();
 
+  // -------------------------------------------------------------------------
+  // Preview sections (A / B / C) — temporary spike to compare layouts.
+  // -------------------------------------------------------------------------
+  type PreviewStage =
+    | "queued"
+    | "submitting"
+    | "completed"
+    | "failed"
+    | "expired";
+
+  interface PreviewBundle {
+    bundleId: string;
+    channelContractId: string | null;
+    jurisdictions: string[];
+    entityName: string | null;
+    amount: string | null;
+    stage: PreviewStage;
+    firstSeenTs: number;
+    lastUpdateTs: number;
+  }
+
+  const PREVIEW_TABLE_LIMIT = 100;
+  const PREVIEW_STAGE_ORDER: PreviewStage[] = [
+    "queued",
+    "submitting",
+    "completed",
+    "failed",
+    "expired",
+  ];
+  const PREVIEW_STAGE_BORDERS: Record<PreviewStage, string> = {
+    queued: "#f59f00",
+    submitting: "#1c7ed6",
+    completed: "#2f9e44",
+    failed: "#e03131",
+    expired: "#868e96",
+  };
+  const previewBundles = new Map<string, PreviewBundle>();
+  const bundleDetails = new Map<string, BundleDetail | "loading" | "error">();
+
+  function previewEnsureDetail(bundleId: string): void {
+    if (bundleDetails.has(bundleId)) return;
+    bundleDetails.set(bundleId, "loading");
+    getBundleDetail(bundleId).then(
+      (d) => {
+        bundleDetails.set(bundleId, d);
+        // Enrich the row with entity data fetched from the detail endpoint —
+        // covers the case where the live WS event arrived without it.
+        const existing = previewBundles.get(bundleId);
+        if (existing) {
+          if (d.entityName && !existing.entityName) {
+            existing.entityName = d.entityName;
+          }
+          if (
+            d.jurisdictions.length > 0 && existing.jurisdictions.length === 0
+          ) {
+            existing.jurisdictions = d.jurisdictions;
+          }
+          if (d.amount && !existing.amount) {
+            existing.amount = d.amount;
+          }
+        }
+        renderPreviewSections();
+      },
+      () => {
+        bundleDetails.set(bundleId, "error");
+        renderPreviewSections();
+      },
+    );
+  }
+
+  function previewUpsert(
+    bundleId: string,
+    stage: PreviewStage,
+    channelContractId: string | null,
+    ts: number,
+    jurisdictions: string[] = [],
+    entityName: string | null = null,
+    amount: string | null = null,
+  ): void {
+    const existing = previewBundles.get(bundleId);
+    if (existing) {
+      existing.stage = stage;
+      existing.lastUpdateTs = ts;
+      if (channelContractId && !existing.channelContractId) {
+        existing.channelContractId = channelContractId;
+      }
+      if (jurisdictions.length > 0 && existing.jurisdictions.length === 0) {
+        existing.jurisdictions = jurisdictions;
+      }
+      if (entityName && !existing.entityName) {
+        existing.entityName = entityName;
+      }
+      if (amount && !existing.amount) {
+        existing.amount = amount;
+      }
+      return;
+    }
+    previewBundles.set(bundleId, {
+      bundleId,
+      channelContractId,
+      jurisdictions,
+      entityName,
+      amount,
+      stage,
+      firstSeenTs: ts,
+      lastUpdateTs: ts,
+    });
+    previewEnsureDetail(bundleId);
+  }
+
+  function statusToStage(
+    status: RecentBundleSummary["status"],
+  ): PreviewStage {
+    switch (status) {
+      case "PENDING":
+        return "queued";
+      case "PROCESSING":
+        return "submitting";
+      case "COMPLETED":
+        return "completed";
+      case "FAILED":
+        return "failed";
+      case "EXPIRED":
+        return "expired";
+    }
+  }
+
+  async function previewLoadHistorical(): Promise<void> {
+    try {
+      const recent = await listRecentBundles(ppPublicKey, PREVIEW_TABLE_LIMIT);
+      for (const r of recent) {
+        const ts = new Date(r.updatedAt).getTime();
+        previewUpsert(
+          r.id,
+          statusToStage(r.status),
+          r.channelContractId,
+          ts,
+          r.jurisdictions,
+          r.entityName,
+          r.amount,
+        );
+      }
+      renderPreviewSections();
+    } catch (err) {
+      console.warn("[v2-zones] historical bundle fetch failed", err);
+    }
+  }
+
+  function previewIngest(event: ProviderEvent): void {
+    switch (event.kind) {
+      case "mempool.bundle_added":
+        previewUpsert(
+          event.payload.bundleId,
+          "queued",
+          event.payload.channelContractId,
+          event.ts,
+          event.payload.jurisdictions,
+          event.payload.entityName,
+          event.payload.amount,
+        );
+        return;
+      case "mempool.bundle_expired":
+        previewUpsert(
+          event.payload.bundleId,
+          "expired",
+          event.payload.channelContractId,
+          event.ts,
+        );
+        return;
+      case "executor.transaction_submitted":
+        for (const id of event.payload.bundleIds) {
+          previewUpsert(
+            id,
+            "submitting",
+            event.payload.channelContractId,
+            event.ts,
+          );
+        }
+        return;
+      case "executor.execution_failed":
+        for (const id of event.payload.bundleIds) {
+          previewUpsert(
+            id,
+            "failed",
+            event.payload.channelContractId,
+            event.ts,
+          );
+        }
+        return;
+      case "verifier.bundle_completed":
+        for (const id of event.payload.bundleIds) {
+          previewUpsert(
+            id,
+            "completed",
+            event.payload.channelContractId,
+            event.ts,
+          );
+        }
+        return;
+      case "verifier.bundle_failed":
+        for (const id of event.payload.bundleIds) {
+          previewUpsert(
+            id,
+            "failed",
+            event.payload.channelContractId,
+            event.ts,
+          );
+        }
+        return;
+      case "bundle.deposit_completed":
+      case "bundle.withdraw_completed":
+        previewUpsert(
+          event.payload.bundleId,
+          "completed",
+          event.payload.channelContractId,
+          event.ts,
+        );
+        return;
+      case "channel.provider_added":
+      case "channel.provider_removed":
+        return;
+    }
+  }
+
+  function capitalize(s: string): string {
+    return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1);
+  }
+
+  function computeActionLabel(
+    bundleId: string,
+  ): { label: string; tooltip: string } {
+    const detail = bundleDetails.get(bundleId);
+    if (detail === undefined || detail === "loading") {
+      return { label: "—", tooltip: "Loading actions…" };
+    }
+    if (detail === "error") {
+      return { label: "—", tooltip: "Failed to load actions" };
+    }
+    if (detail.operations.length === 0) {
+      return { label: "—", tooltip: "No actions" };
+    }
+    const hasDeposit = detail.operations.some((o) => o.kind === "deposit");
+    const hasWithdraw = detail.operations.some((o) => o.kind === "withdraw");
+    const label = hasDeposit ? "Deposit" : hasWithdraw ? "Withdraw" : "Send";
+    const tooltip = "Actions: " +
+      detail.operations.map((o) => capitalize(o.kind)).join(", ");
+    return { label, tooltip };
+  }
+
+  function renderPreviewSections(): void {
+    const now = Date.now();
+    const all = [...previewBundles.values()];
+
+    // --- Section A: Recent bundles table ------------------------------------
+    const tableEl = root.querySelector(
+      "#preview-bundles-table",
+    ) as HTMLElement | null;
+    if (tableEl) {
+      const recent = [...all].sort((a, b) => b.lastUpdateTs - a.lastUpdateTs)
+        .slice(0, PREVIEW_TABLE_LIMIT);
+      const tableHeader = `
+        <thead>
+          <tr style="text-align:left;color:var(--text-muted);font-size:0.7rem;text-transform:uppercase">
+            <th style="padding:0.25rem 0.5rem;font-weight:500;position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);z-index:1">Entity</th>
+            <th style="padding:0.25rem 0.5rem;font-weight:500;min-width:12%;text-align:center;position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);z-index:1">Action</th>
+            <th style="padding:0.25rem 0.5rem;font-weight:500;min-width:12%;text-align:center;position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);z-index:1">Jurisdiction</th>
+            <th style="padding:0.25rem 0.5rem;font-weight:500;min-width:12%;text-align:center;position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);z-index:1">Amount</th>
+            <th style="padding:0.25rem 0.5rem;font-weight:500;min-width:12%;text-align:center;position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);z-index:1">Asset</th>
+            <th style="padding:0.25rem 0.5rem;font-weight:500;min-width:12%;text-align:center;position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);z-index:1">Date</th>
+          </tr>
+        </thead>`;
+      if (recent.length === 0) {
+        tableEl.innerHTML = `
+          <div style="display:flex;flex-direction:column;height:100%">
+            <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+              ${tableHeader}
+            </table>
+            <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted)">No Operations</div>
+          </div>`;
+      } else {
+        const rows = recent.map((b) => {
+          const matched = b.channelContractId
+            ? channelToCouncil.get(b.channelContractId)
+            : undefined;
+          const assetLabel = matched?.assetCode
+            ? escapeHtml(matched.assetCode)
+            : "—";
+          const jurisdictionLabel = b.jurisdictions.length === 0
+            ? `<span style="color:var(--text-muted)">—</span>`
+            : b.jurisdictions
+              .map((j) => `<span title="${escapeHtml(j)}">${flag(j)}</span>`)
+              .join(" ");
+          const stageColor = PREVIEW_STAGE_BORDERS[b.stage];
+          const entityLabel = b.entityName
+            ? escapeHtml(b.entityName)
+            : `<span style="color:var(--text-muted)">—</span>`;
+          const action = computeActionLabel(b.bundleId);
+          const amountLabel = b.amount
+            ? escapeHtml(fmtAmountStroops(b.amount))
+            : `<span style="color:var(--text-muted)">—</span>`;
+          return `
+            <tr>
+              <td style="padding:0.25rem 0.5rem;font-size:0.78rem"><div title="${
+            b.stage.charAt(0).toUpperCase() + b.stage.slice(1)
+          }" style="display:flex;align-items:flex-end;gap:0.5rem;cursor:default"><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${stageColor};align-self:center;flex:0 0 auto"></span><span>${entityLabel}</span></div></td>
+              <td style="padding:0.25rem 0.5rem;font-size:0.78rem;min-width:12%;text-align:center"><span title="${
+            escapeHtml(action.tooltip)
+          }">${escapeHtml(action.label)}</span></td>
+              <td style="padding:0.25rem 0.5rem;font-size:0.85rem;min-width:12%;text-align:center">${jurisdictionLabel}</td>
+              <td style="padding:0.25rem 0.5rem;font-size:0.78rem;min-width:12%;text-align:center">${amountLabel}</td>
+              <td style="padding:0.25rem 0.5rem;font-size:0.78rem;min-width:12%;text-align:center">${assetLabel}</td>
+              <td style="padding:0.25rem 0.5rem;color:var(--text-muted);font-size:0.75rem;min-width:12%;text-align:center">${
+            fmtRelativeTime(b.lastUpdateTs, now)
+          }</td>
+            </tr>`;
+        }).join("");
+        tableEl.innerHTML = `
+          <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+            ${tableHeader}
+            <tbody>${rows}</tbody>
+          </table>`;
+      }
+    }
+
+    // --- Counts strip (above the table) -------------------------------------
+    const countsEl = root.querySelector(
+      "#preview-bundles-counts",
+    ) as HTMLElement | null;
+    if (countsEl) {
+      const counts: Record<PreviewStage, number> = {
+        queued: 0,
+        submitting: 0,
+        completed: 0,
+        failed: 0,
+        expired: 0,
+      };
+      for (const b of all) counts[b.stage]++;
+      countsEl.textContent = PREVIEW_STAGE_ORDER
+        .map((s) => `${counts[s]} ${s}`)
+        .join(" · ");
+    }
+  }
+
+  renderPreviewSections();
+  void previewLoadHistorical();
+
   return {
     handleEvent(event) {
-      const channelId = (event.payload as { channelContractId?: string | null })
-        .channelContractId ?? null;
-      const matched = channelId ? channelToCouncil.get(channelId) : undefined;
-
-      if (matched) {
-        const stamps = councilPulses.get(matched.index) ?? [];
-        stamps.push(Date.now());
-        councilPulses.set(matched.index, stamps);
-        recolorCouncil(matched.index);
-        animatePulse(matched.index, PULSE_COLORS[event.kind]);
-      }
       pushFeedCard(event);
+      previewIngest(event);
+      renderPreviewSections();
     },
     setStatus(_status) {
       // Always-live: no Range fallback. EventsClient handles WS reconnect
