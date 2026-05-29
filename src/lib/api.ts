@@ -347,3 +347,57 @@ export async function getMetrics(
   const body = await res.json();
   return body.data as MetricsResponse;
 }
+
+export type BundleOpKind =
+  | "deposit"
+  | "withdraw"
+  | "spend"
+  | "create"
+  | "unknown";
+
+export interface BundleOp {
+  kind: BundleOpKind;
+  address?: string;
+  amount?: string;
+}
+
+export interface BundleDetail {
+  id: string;
+  status: string;
+  channelContractId: string | null;
+  operations: BundleOp[];
+  entityName: string | null;
+  jurisdictions: string[];
+  amount: string | null;
+}
+
+export async function getBundleDetail(bundleId: string): Promise<BundleDetail> {
+  const res = await platformFetch(
+    `/dashboard/bundles/${encodeURIComponent(bundleId)}`,
+  );
+  if (!res.ok) throw new Error("Failed to fetch bundle detail");
+  const body = await res.json();
+  return body.data as BundleDetail;
+}
+
+export interface RecentBundleSummary {
+  id: string;
+  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "EXPIRED";
+  channelContractId: string | null;
+  entityName: string | null;
+  jurisdictions: string[];
+  amount: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function listRecentBundles(
+  ppPublicKey: string,
+  limit: number,
+): Promise<RecentBundleSummary[]> {
+  const qs = new URLSearchParams({ ppPublicKey, limit: String(limit) });
+  const res = await platformFetch(`/dashboard/bundles?${qs}`);
+  if (!res.ok) throw new Error("Failed to list recent bundles");
+  const body = await res.json();
+  return (body.data as { bundles: RecentBundleSummary[] }).bundles;
+}
