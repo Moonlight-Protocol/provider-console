@@ -93,14 +93,7 @@ function renderContent(): HTMLElement {
         ? "pending"
         : "inactive";
       let codes: string[] = [];
-      if (membership?.status === "ACTIVE") {
-        codes = Array.from(
-          new Set([
-            ...(membership.councilJurisdictions || []),
-            ...(membership.claimedJurisdictions || []),
-          ].map((c) => c.toUpperCase())),
-        );
-      } else if (membership?.claimedJurisdictions) {
+      if (membership?.claimedJurisdictions) {
         codes = membership.claimedJurisdictions.map((c) => c.toUpperCase());
       } else if (Array.isArray(meta.jurisdictions)) {
         codes = (meta.jurisdictions as string[]).map((c) => c.toUpperCase());
