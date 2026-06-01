@@ -1,5 +1,5 @@
 /**
- * WebSocket client for /api/v1/events/ws on provider-platform.
+ * WebSocket client for /api/v1/providers/:ppPublicKey/events/ws on provider-platform.
  *
  * - URL derived from API_BASE_URL by swapping http(s):// → ws(s)://.
  * - Auth via `Sec-WebSocket-Protocol: moonlight.events.v1, bearer.<JWT>`.
@@ -173,9 +173,9 @@ export class EventsClient {
       return;
     }
     const base = wsUrlFromApiBase(API_BASE_URL);
-    const url = `${base}/events/ws?pp=${
+    const url = `${base}/providers/${
       encodeURIComponent(this.opts.ppPublicKey)
-    }`;
+    }/events/ws`;
     this.opts.onStatus?.("connecting");
     const sock = new WebSocket(url, [SUBPROTOCOL, `bearer.${token}`]);
     this.socket = sock;

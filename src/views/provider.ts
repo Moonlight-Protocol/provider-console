@@ -717,7 +717,7 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
   function previewEnsureDetail(bundleId: string): void {
     if (bundleDetails.has(bundleId)) return;
     bundleDetails.set(bundleId, "loading");
-    getBundleDetail(bundleId).then(
+    getBundleDetail(ppPublicKey, bundleId).then(
       (d) => {
         bundleDetails.set(bundleId, d);
         // Enrich the row with entity data fetched from the detail endpoint —
