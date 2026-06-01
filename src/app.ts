@@ -15,6 +15,9 @@ import { metadataView } from "./views/setup/metadata.ts";
 import { fundView } from "./views/setup/fund.ts";
 import { joinView } from "./views/setup/join.ts";
 
+// Public KYC/KYB submission — no auth, isolated from operator session
+import { entitiesRegisterView } from "./views/entities/register.ts";
+
 // Initialize analytics (NOOP in dev)
 initAnalytics();
 initTracer({ endpoint: OTEL_ENDPOINT, auth: OTEL_AUTH });
@@ -27,6 +30,7 @@ route("/setup/metadata", metadataView);
 route("/setup/fund", fundView);
 route("/setup/join", joinView);
 route("/recover", recoverView);
+route("/entities/register", entitiesRegisterView);
 
 // Root — redirect based on auth state
 route("/", () => {

@@ -178,10 +178,10 @@ export async function listPps(): Promise<PpInfo[]> {
 }
 
 export async function deletePp(publicKey: string): Promise<void> {
-  const res = await platformFetch("/dashboard/pp/delete", {
-    method: "POST",
-    body: JSON.stringify({ publicKey }),
-  });
+  const res = await platformFetch(
+    `/providers/${encodeURIComponent(publicKey)}`,
+    { method: "DELETE" },
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.message || "Failed to delete provider");
@@ -234,10 +234,14 @@ export async function joinCouncil(data: {
     timestamp: number;
   };
 }): Promise<{ joinRequestId: string; status: string }> {
-  const res = await platformFetch("/dashboard/council/join", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const { ppPublicKey, ...rest } = data;
+  const res = await platformFetch(
+    `/providers/${encodeURIComponent(ppPublicKey)}/council/join`,
+    {
+      method: "POST",
+      body: JSON.stringify(rest),
+    },
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.message || "Failed to join council");
@@ -263,9 +267,7 @@ export async function getCouncilMembership(
   ppPublicKey: string,
 ): Promise<CouncilMembership | null> {
   const res = await platformFetch(
-    `/dashboard/council/membership?ppPublicKey=${
-      encodeURIComponent(ppPublicKey)
-    }`,
+    `/providers/${encodeURIComponent(ppPublicKey)}/council/membership`,
   );
   if (!res.ok) throw new Error("Failed to retrieve membership");
   const { data } = await res.json();
@@ -280,10 +282,13 @@ export async function getCouncilMembership(
 export async function checkMembershipStatus(
   ppPublicKey: string,
 ): Promise<"ACTIVE" | "PENDING" | "REJECTED"> {
-  const res = await platformFetch("/dashboard/council/membership", {
-    method: "POST",
-    body: JSON.stringify({ ppPublicKey }),
-  });
+  const res = await platformFetch(
+    `/providers/${encodeURIComponent(ppPublicKey)}/council/membership`,
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+  );
   if (!res.ok) return "PENDING";
   const { data } = await res.json();
   return data?.status ?? "PENDING";
@@ -302,7 +307,7 @@ export async function getTreasury(
   ppPublicKey: string,
 ): Promise<TreasuryData> {
   const res = await platformFetch(
-    `/dashboard/treasury?ppPublicKey=${encodeURIComponent(ppPublicKey)}`,
+    `/providers/${encodeURIComponent(ppPublicKey)}/treasury`,
   );
   if (!res.ok) throw new Error("Failed to fetch treasury info");
   const { data } = await res.json();
@@ -338,11 +343,10 @@ export async function getMetrics(
   ppPublicKey: string,
   rangeMin: number,
 ): Promise<MetricsResponse> {
-  const qs = new URLSearchParams({
-    ppPublicKey,
-    rangeMin: String(rangeMin),
-  });
-  const res = await platformFetch(`/dashboard/metrics?${qs}`);
+  const qs = new URLSearchParams({ rangeMin: String(rangeMin) });
+  const res = await platformFetch(
+    `/providers/${encodeURIComponent(ppPublicKey)}/metrics?${qs}`,
+  );
   if (!res.ok) throw new Error("Failed to fetch metrics");
   const body = await res.json();
   return body.data as MetricsResponse;
@@ -371,9 +375,14 @@ export interface BundleDetail {
   amount: string | null;
 }
 
-export async function getBundleDetail(bundleId: string): Promise<BundleDetail> {
+export async function getBundleDetail(
+  ppPublicKey: string,
+  bundleId: string,
+): Promise<BundleDetail> {
   const res = await platformFetch(
-    `/dashboard/bundles/${encodeURIComponent(bundleId)}`,
+    `/providers/${encodeURIComponent(ppPublicKey)}/bundles/${
+      encodeURIComponent(bundleId)
+    }`,
   );
   if (!res.ok) throw new Error("Failed to fetch bundle detail");
   const body = await res.json();
@@ -395,8 +404,10 @@ export async function listRecentBundles(
   ppPublicKey: string,
   limit: number,
 ): Promise<RecentBundleSummary[]> {
-  const qs = new URLSearchParams({ ppPublicKey, limit: String(limit) });
-  const res = await platformFetch(`/dashboard/bundles?${qs}`);
+  const qs = new URLSearchParams({ limit: String(limit) });
+  const res = await platformFetch(
+    `/providers/${encodeURIComponent(ppPublicKey)}/bundles?${qs}`,
+  );
   if (!res.ok) throw new Error("Failed to list recent bundles");
   const body = await res.json();
   return (body.data as { bundles: RecentBundleSummary[] }).bundles;

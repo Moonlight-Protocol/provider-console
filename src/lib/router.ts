@@ -17,6 +17,7 @@ type RouteEntry = {
 const routes: RouteEntry[] = [];
 let cleanups: (() => void)[] = [];
 let currentParams: Record<string, string> = {};
+let currentQuery: URLSearchParams = new URLSearchParams();
 
 function parsePattern(pattern: string): Omit<RouteEntry, "handler"> {
   const segments = pattern.split("/").filter((s) => s.length > 0);
@@ -57,9 +58,21 @@ export function getRouteParams(): Record<string, string> {
   return currentParams;
 }
 
+/**
+ * Returns the parsed query string from the current hash route.
+ * `#/foo/bar?x=1&y=2` → URLSearchParams of `x=1&y=2`.
+ */
+export function getRouteQuery(): URLSearchParams {
+  return currentQuery;
+}
+
 async function render(): Promise<void> {
   const hash = globalThis.location.hash || "#/";
-  const path = hash.startsWith("#") ? hash.slice(1) : hash;
+  const raw = hash.startsWith("#") ? hash.slice(1) : hash;
+  const qIdx = raw.indexOf("?");
+  const path = qIdx === -1 ? raw : raw.slice(0, qIdx);
+  const queryString = qIdx === -1 ? "" : raw.slice(qIdx + 1);
+  currentQuery = new URLSearchParams(queryString);
   const pathSegments = path.split("/").filter((s) => s.length > 0);
 
   let matched: { entry: RouteEntry; params: Record<string, string> } | null =
