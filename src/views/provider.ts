@@ -66,6 +66,18 @@ function fmtRelativeTime(epochMs: number, now: number): string {
   return `${hr}h ago`;
 }
 
+/** Absolute, human-readable date with hour:minute (24h), e.g. "Jun 12, 2026, 18:16". */
+function fmtDateTime(epochMs: number): string {
+  return new Date(epochMs).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 function withBriefCopyFeedback(btn: HTMLElement): void {
   const orig = btn.innerHTML;
   btn.innerHTML =
@@ -221,7 +233,7 @@ function renderTemplate(
     </div>
 
     <h3 style="margin:2rem 0 0.5rem">Entities</h3>
-    <div id="entities-section" class="stat-card" style="padding:0.75rem 1rem;margin-bottom:2rem">
+    <div id="entities-section" style="margin-bottom:2rem">
       <div id="entities-body" style="color:var(--text-muted);font-size:0.85rem">Loading entities…</div>
     </div>
   `;
@@ -336,9 +348,8 @@ async function renderEntitiesSection(
     return;
   }
 
-  const now = Date.now();
   const rows = entities.map((e) => {
-    const date = fmtRelativeTime(new Date(e.updatedAt).getTime(), now);
+    const date = fmtDateTime(new Date(e.updatedAt).getTime());
     return `
       <tr>
         <td style="white-space:nowrap;color:var(--text-muted)">${
