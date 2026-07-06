@@ -1,6 +1,8 @@
 import { assert, assertEquals, assertInstanceOf } from "@std/assert";
 import {
+  bundleStageTitle,
   ConsoleError,
+  failureReason,
   isSafeSentence,
   operatorMessage,
   platformError,
@@ -78,6 +80,50 @@ Deno.test("platformError — reads StructuredError body, maps code, carries code
     err.message,
     "That channel is disabled (withdraw-only) by its council.",
   );
+});
+
+Deno.test("failureReason — maps SOROBAN_* on-chain codes to descriptive operator copy", () => {
+  assertEquals(
+    failureReason({ code: "SOROBAN_1010", source: "onchain", message: "raw" }),
+    "On-chain: the authorization signature expired before it was submitted.",
+  );
+  assertEquals(
+    failureReason({ code: "SOROBAN_2003", source: "onchain" }),
+    "On-chain: the bundle didn't balance (inputs ≠ outputs).",
+  );
+  assertEquals(
+    failureReason({ code: "PROVIDER_EXECUTION_FAILED", source: "provider" }),
+    "The bundle could not be submitted to the network.",
+  );
+});
+
+Deno.test("failureReason — unknown SOROBAN code falls back to the failureDetail message", () => {
+  assertEquals(
+    failureReason({
+      code: "SOROBAN_9999",
+      source: "onchain",
+      message: "A brand-new on-chain condition was not satisfied.",
+    }),
+    "A brand-new on-chain condition was not satisfied.",
+  );
+});
+
+Deno.test("failureReason — null/absent detail yields null (no reason to show)", () => {
+  assertEquals(failureReason(null), null);
+  assertEquals(failureReason(undefined), null);
+});
+
+Deno.test("bundleStageTitle — FAILED row shows the mapped on-chain reason", () => {
+  const reason = failureReason({ code: "SOROBAN_1010", source: "onchain" });
+  assertEquals(
+    bundleStageTitle("failed", reason),
+    "Failed — On-chain: the authorization signature expired before it was submitted.",
+  );
+  // Failed but reason not yet loaded → plain stage.
+  assertEquals(bundleStageTitle("failed", null), "Failed");
+  // Non-failed stages → capitalized stage, no reason.
+  assertEquals(bundleStageTitle("completed", null), "Completed");
+  assertEquals(bundleStageTitle("submitting", "ignored"), "Submitting");
 });
 
 Deno.test("platformError — non-JSON body falls back to the context message", async () => {

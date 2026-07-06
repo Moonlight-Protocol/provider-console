@@ -94,6 +94,26 @@ const CODE_COPY: Record<string, string> = {
   BND_014: "This provider isn't a member of that channel.",
   BND_015: "That channel is disabled (withdraw-only) by its council.",
   BND_016: "The chain is temporarily unreachable — retry shortly.",
+  // ── On-chain bundle failure reasons (bundle failureDetail) ───────────────
+  // Decoded soroban contract codes (soroban-core catalog) + provider-level
+  // terminal states, mapped to descriptive operator copy. Unknown SOROBAN_*
+  // codes fall through to the failureDetail message (the catalog description).
+  SOROBAN_1010:
+    "On-chain: the authorization signature expired before it was submitted.",
+  SOROBAN_1011: "On-chain: the provider-signature threshold wasn't met.",
+  SOROBAN_2002: "On-chain: a UTXO was already spent (double-spend).",
+  SOROBAN_2003: "On-chain: the bundle didn't balance (inputs ≠ outputs).",
+  SOROBAN_2004: "On-chain: a create amount must be greater than zero.",
+  SOROBAN_3006:
+    "On-chain: an operation wasn't covered by an owner-signed condition.",
+  SOROBAN_3007:
+    "On-chain: a deposit/withdraw amount was not strictly positive.",
+  SOROBAN_3008:
+    "On-chain: the channel contract was re-entered while a call was in progress.",
+  PROVIDER_EXECUTION_FAILED:
+    "The bundle could not be submitted to the network.",
+  ONCHAIN_TX_FAILED: "The transaction failed on-chain.",
+  PROVIDER_TX_TIMEOUT: "The transaction wasn't confirmed on-chain in time.",
 };
 
 /** Generic last-resort copy when there's no code and no safe body message. */
@@ -127,6 +147,34 @@ export function operatorMessage(
   if (err.code && err.code in CODE_COPY) return CODE_COPY[err.code];
   if (err.message && isSafeSentence(err.message)) return err.message;
   return fallback ?? GENERIC;
+}
+
+/**
+ * Map a bundle's `failureDetail` (the on-chain / in-flight failure reason) to
+ * descriptive operator copy: known code → mapped copy; unknown code → the
+ * failureDetail message (the catalog description, if a safe sentence) → generic.
+ * Returns null when there is no failure detail (bundle didn't fail).
+ */
+export function failureReason(
+  detail: StructuredError | null | undefined,
+): string | null {
+  if (!detail) return null;
+  return operatorMessage(detail);
+}
+
+/**
+ * Tooltip/title for a bundle row given its stage and (already-mapped) reason:
+ * `"Failed — <reason>"` for a FAILED bundle with a known reason, otherwise the
+ * capitalized stage. Pure so the bundle-row rendering is unit-testable.
+ */
+export function bundleStageTitle(
+  stage: string,
+  reason: string | null,
+): string {
+  if (stage === "failed" && reason) return `Failed — ${reason}`;
+  return stage.length === 0
+    ? stage
+    : stage.charAt(0).toUpperCase() + stage.slice(1);
 }
 
 /**

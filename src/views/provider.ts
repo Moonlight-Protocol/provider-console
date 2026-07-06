@@ -15,6 +15,7 @@ import {
   type RecentBundleSummary,
   type TreasuryData,
 } from "../lib/api.ts";
+import { bundleStageTitle, failureReason } from "../lib/errors.ts";
 import { getRouteParams, navigate, onCleanup } from "../lib/router.ts";
 import { EventsClient, type ProviderEvent } from "../lib/events-client.ts";
 import { getConnectedAddress, signTransaction } from "../lib/wallet.ts";
@@ -798,6 +799,8 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
     stage: PreviewStage;
     firstSeenTs: number;
     lastUpdateTs: number;
+    /** Mapped on-chain failure reason (operator copy) for FAILED bundles. */
+    reason: string | null;
   }
 
   const PREVIEW_TABLE_LIMIT = 100;
@@ -828,6 +831,9 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
         // covers the case where the live WS event arrived without it.
         const existing = previewBundles.get(bundleId);
         if (existing) {
+          // Surface WHY a bundle failed on-chain (structured failureDetail,
+          // mapped to operator copy) — not the raw WS reason string.
+          existing.reason = failureReason(d.failureDetail);
           if (d.entityName && !existing.entityName) {
             existing.entityName = d.entityName;
           }
@@ -885,6 +891,7 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
       stage,
       firstSeenTs: ts,
       lastUpdateTs: ts,
+      reason: null,
     });
     previewEnsureDetail(bundleId);
   }
@@ -920,6 +927,10 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
           r.entityName,
           r.amount,
         );
+        // Surface the on-chain failure reason from the list item (mapped to
+        // operator copy); the detail fetch refines it if it differs.
+        const b = previewBundles.get(r.id);
+        if (b) b.reason = failureReason(r.failureDetail);
       }
       renderPreviewSections();
     } catch (err) {
@@ -1072,6 +1083,12 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
               .map((j) => `<span title="${escapeHtml(j)}">${flag(j)}</span>`)
               .join(" ");
           const stageColor = PREVIEW_STAGE_BORDERS[b.stage];
+          const stageTitle = bundleStageTitle(b.stage, b.reason);
+          const reasonLine = b.stage === "failed" && b.reason
+            ? `<div style="color:#e03131;font-size:0.68rem;margin-top:0.15rem;margin-left:0.95rem;white-space:normal;line-height:1.2">${
+              escapeHtml(b.reason)
+            }</div>`
+            : "";
           const entityLabel = b.entityName
             ? escapeHtml(b.entityName)
             : `<span style="color:var(--text-muted)">—</span>`;
@@ -1082,8 +1099,8 @@ function setupV2Zones(opts: SetupOpts): ZoneHandle {
           return `
             <tr>
               <td style="padding:0.25rem 0.5rem;font-size:0.78rem"><div title="${
-            b.stage.charAt(0).toUpperCase() + b.stage.slice(1)
-          }" style="display:flex;align-items:flex-end;gap:0.5rem;cursor:default"><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${stageColor};align-self:center;flex:0 0 auto"></span><span>${entityLabel}</span></div></td>
+            escapeHtml(stageTitle)
+          }" style="display:flex;align-items:flex-end;gap:0.5rem;cursor:default"><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${stageColor};align-self:center;flex:0 0 auto"></span><span>${entityLabel}</span></div>${reasonLine}</td>
               <td style="padding:0.25rem 0.5rem;font-size:0.78rem;min-width:12%;text-align:center"><span title="${
             escapeHtml(action.tooltip)
           }">${escapeHtml(action.label)}</span></td>

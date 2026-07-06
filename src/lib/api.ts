@@ -397,6 +397,18 @@ export interface BundleOp {
   amount?: string;
 }
 
+/**
+ * Structured on-chain / in-flight failure reason recorded by provider-platform
+ * on a bundle's `failureDetail` (e.g. `{ code: "SOROBAN_1010", source:
+ * "onchain", name: "SignatureExpired", message: "…" }`). Null unless FAILED.
+ */
+export interface BundleFailureDetail {
+  code?: string;
+  source?: string;
+  message?: string;
+  name?: string;
+}
+
 export interface BundleDetail {
   id: string;
   status: string;
@@ -405,6 +417,8 @@ export interface BundleDetail {
   entityName: string | null;
   jurisdictions: string[];
   amount: string | null;
+  /** Why the bundle failed on-chain (populated for FAILED bundles). */
+  failureDetail: BundleFailureDetail | null;
 }
 
 export async function getBundleDetail(
@@ -430,6 +444,8 @@ export interface RecentBundleSummary {
   amount: string | null;
   createdAt: string;
   updatedAt: string;
+  /** On-chain failure reason (populated for FAILED bundles). */
+  failureDetail: BundleFailureDetail | null;
 }
 
 export async function listRecentBundles(
