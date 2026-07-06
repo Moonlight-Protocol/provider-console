@@ -24,7 +24,13 @@ async function checkMemberships(wrapper: HTMLElement) {
   let pps: PpInfo[];
   try {
     pps = await listPps();
-  } catch {
+  } catch (err) {
+    // Background poll — don't interrupt the page, but surface to the operator
+    // console instead of failing silently.
+    console.warn(
+      "Background membership check: failed to list providers —",
+      err instanceof Error ? err.message : err,
+    );
     return;
   }
 
@@ -50,7 +56,14 @@ async function checkMemberships(wrapper: HTMLElement) {
         revoked = true;
         break;
       }
-    } catch { /* silently fail */ }
+    } catch (err) {
+      // Per-PP sync failure in a background poll: log for the operator rather
+      // than swallow, and skip this PP (don't show a false "removed" banner).
+      console.warn(
+        `Background membership check: sync failed for ${pp.publicKey} —`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   // If no revocations found but a banner is showing, the PP was re-accepted — remove it

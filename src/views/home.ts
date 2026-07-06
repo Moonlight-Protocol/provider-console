@@ -70,7 +70,13 @@ function renderContent(): HTMLElement {
             (badge as HTMLElement).className = "badge badge-inactive";
             badge.textContent = "REJECTED";
           }
-        }).catch(() => {});
+        }).catch((err) => {
+          // Background auto-refresh — log for the operator, leave the badge as-is.
+          console.warn(
+            `Membership auto-refresh failed for ${pp.publicKey} —`,
+            err instanceof Error ? err.message : err,
+          );
+        });
       }
     } catch (err) {
       loadingEl.hidden = true;
