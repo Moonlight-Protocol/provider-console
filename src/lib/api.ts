@@ -5,6 +5,7 @@
 import { API_BASE_URL } from "./config.ts";
 import { getConnectedAddress, signMessage } from "./wallet.ts";
 import { currentTraceparent } from "./tracer.ts";
+import { ConsoleError, platformError } from "./errors.ts";
 
 function withTraceparent(
   headers: Record<string, string>,
@@ -31,7 +32,10 @@ export async function authenticate(): Promise<string> {
     body: JSON.stringify({ publicKey }),
   });
   if (!challengeRes.ok) {
-    throw new Error(`Failed to get auth challenge: ${challengeRes.status}`);
+    throw await platformError(
+      challengeRes,
+      "Failed to start the sign-in challenge.",
+    );
   }
   const { data: { nonce } } = await challengeRes.json();
 
@@ -43,7 +47,7 @@ export async function authenticate(): Promise<string> {
     body: JSON.stringify({ nonce, signature, publicKey }),
   });
   if (!verifyRes.ok) {
-    throw new Error("Platform authentication failed");
+    throw await platformError(verifyRes, "Sign-in verification failed.");
   }
   const { data: { token } } = await verifyRes.json();
 
@@ -93,7 +97,10 @@ async function platformFetch(
   if (res.status === 401) {
     clearPlatformAuth();
     globalThis.location.hash = "#/login";
-    throw new Error("Session expired");
+    throw new ConsoleError("Your session expired. Please sign in again.", {
+      code: "HTTP_AUTH_003",
+      status: 401,
+    });
   }
   return res;
 }
@@ -163,8 +170,7 @@ export async function registerPp(
     body: JSON.stringify({ secretKey, derivationIndex, label }),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || "Failed to register PP");
+    throw await platformError(res, "Failed to register the provider.");
   }
   const { data } = await res.json();
   return data;
@@ -172,7 +178,7 @@ export async function registerPp(
 
 export async function listPps(): Promise<PpInfo[]> {
   const res = await platformFetch("/dashboard/pp/list");
-  if (!res.ok) throw new Error("Failed to list PPs");
+  if (!res.ok) throw await platformError(res, "Failed to list providers.");
   const { data } = await res.json();
   return data;
 }
@@ -183,8 +189,7 @@ export async function deletePp(publicKey: string): Promise<void> {
     { method: "DELETE" },
   );
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || "Failed to delete provider");
+    throw await platformError(res, "Failed to delete the provider.");
   }
 }
 
@@ -214,8 +219,7 @@ export async function discoverCouncil(
     body: JSON.stringify({ councilUrl }),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || `Discovery failed: HTTP ${res.status}`);
+    throw await platformError(res, "Failed to discover the council.");
   }
   const { data } = await res.json();
   return data;
@@ -243,8 +247,10 @@ export async function joinCouncil(data: {
     },
   );
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || "Failed to join council");
+    throw await platformError(
+      res,
+      "Failed to submit the council join request.",
+    );
   }
   const { data: resData } = await res.json();
   return resData;
@@ -269,7 +275,9 @@ export async function getCouncilMembership(
   const res = await platformFetch(
     `/providers/${encodeURIComponent(ppPublicKey)}/council/membership`,
   );
-  if (!res.ok) throw new Error("Failed to retrieve membership");
+  if (!res.ok) {
+    throw await platformError(res, "Failed to retrieve council membership.");
+  }
   const { data } = await res.json();
   return data;
 }
@@ -289,7 +297,9 @@ export async function checkMembershipStatus(
       body: JSON.stringify({}),
     },
   );
-  if (!res.ok) return "PENDING";
+  if (!res.ok) {
+    throw await platformError(res, "Failed to sync council membership.");
+  }
   const { data } = await res.json();
   return data?.status ?? "PENDING";
 }
@@ -309,7 +319,7 @@ export async function getTreasury(
   const res = await platformFetch(
     `/providers/${encodeURIComponent(ppPublicKey)}/treasury`,
   );
-  if (!res.ok) throw new Error("Failed to fetch treasury info");
+  if (!res.ok) throw await platformError(res, "Failed to fetch treasury info.");
   const { data } = await res.json();
   return data;
 }
@@ -347,7 +357,7 @@ export async function getMetrics(
   const res = await platformFetch(
     `/providers/${encodeURIComponent(ppPublicKey)}/metrics?${qs}`,
   );
-  if (!res.ok) throw new Error("Failed to fetch metrics");
+  if (!res.ok) throw await platformError(res, "Failed to fetch metrics.");
   const body = await res.json();
   return body.data as MetricsResponse;
 }
@@ -369,7 +379,7 @@ export async function getEntities(
   const res = await platformFetch(
     `/providers/${encodeURIComponent(ppPublicKey)}/entities`,
   );
-  if (!res.ok) throw new Error("Failed to fetch entities");
+  if (!res.ok) throw await platformError(res, "Failed to fetch entities.");
   const { data } = await res.json();
   return data as EntityInteraction[];
 }
@@ -387,6 +397,18 @@ export interface BundleOp {
   amount?: string;
 }
 
+/**
+ * Structured on-chain / in-flight failure reason recorded by provider-platform
+ * on a bundle's `failureDetail` (e.g. `{ code: "SOROBAN_1010", source:
+ * "onchain", name: "SignatureExpired", message: "…" }`). Null unless FAILED.
+ */
+export interface BundleFailureDetail {
+  code?: string;
+  source?: string;
+  message?: string;
+  name?: string;
+}
+
 export interface BundleDetail {
   id: string;
   status: string;
@@ -395,6 +417,8 @@ export interface BundleDetail {
   entityName: string | null;
   jurisdictions: string[];
   amount: string | null;
+  /** Why the bundle failed on-chain (populated for FAILED bundles). */
+  failureDetail: BundleFailureDetail | null;
 }
 
 export async function getBundleDetail(
@@ -406,7 +430,7 @@ export async function getBundleDetail(
       encodeURIComponent(bundleId)
     }`,
   );
-  if (!res.ok) throw new Error("Failed to fetch bundle detail");
+  if (!res.ok) throw await platformError(res, "Failed to fetch bundle detail.");
   const body = await res.json();
   return body.data as BundleDetail;
 }
@@ -420,6 +444,8 @@ export interface RecentBundleSummary {
   amount: string | null;
   createdAt: string;
   updatedAt: string;
+  /** On-chain failure reason (populated for FAILED bundles). */
+  failureDetail: BundleFailureDetail | null;
 }
 
 export async function listRecentBundles(
@@ -430,7 +456,7 @@ export async function listRecentBundles(
   const res = await platformFetch(
     `/providers/${encodeURIComponent(ppPublicKey)}/bundles?${qs}`,
   );
-  if (!res.ok) throw new Error("Failed to list recent bundles");
+  if (!res.ok) throw await platformError(res, "Failed to list recent bundles.");
   const body = await res.json();
   return (body.data as { bundles: RecentBundleSummary[] }).bundles;
 }
